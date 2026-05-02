@@ -1,24 +1,26 @@
 using System.Text;
 using JitenMPV.Core.Api.Models;
+using JitenMPV.Core.Cache;
 using JitenMPV.Core.Config;
 using JitenMPV.Core.Theming;
 
 namespace JitenMPV.Core.Rendering;
 
-public sealed class OverlayRenderer(PluginSettings settings)
+public sealed class OverlayRenderer(PluginSettings settings, StyleResolver styleResolver)
 {
     private readonly string _preamble = $@"{{\an2\fs{settings.FontSize}\fn{settings.FontFamily}\bord{settings.BorderSize}}}";
 
     public string RenderSubtitle(
         string originalText,
-        List<ReaderToken> tokens,
-        Dictionary<(int WordId, byte ReadingIndex), KnownState> vocabStates)
+        ParseCacheEntry entry,
+        HashSet<(int WordId, byte ReadingIndex)>? iPlusOneWords = null,
+        HashSet<(int WordId, byte ReadingIndex)>? frequencyWords = null)
     {
         var sb = new StringBuilder();
-        AppendPreamble(sb);
+        sb.Append(_preamble);
 
         int lastEnd = 0;
-        foreach (var token in tokens)
+        foreach (var token in entry.Tokens)
         {
             if (token.Start > lastEnd)
             {
@@ -26,7 +28,7 @@ public sealed class OverlayRenderer(PluginSettings settings)
                 sb.Append(originalText, lastEnd, token.Start - lastEnd);
             }
 
-            var style = ResolveStyle(token, vocabStates);
+            var style = styleResolver.Resolve(token, entry.VocabStates, iPlusOneWords, frequencyWords);
             AssTagBuilder.AppendStyle(sb, style);
             sb.Append(originalText, token.Start, token.Length);
 
@@ -39,33 +41,17 @@ public sealed class OverlayRenderer(PluginSettings settings)
             sb.Append(originalText, lastEnd, originalText.Length - lastEnd);
         }
 
+        sb.Replace("\n", "\\N");
         return sb.ToString();
     }
 
     public string RenderPlain(string text)
     {
         var sb = new StringBuilder();
-        AppendPreamble(sb);
+        sb.Append(_preamble);
         AssTagBuilder.AppendStyle(sb, ThemePresets.Unparsed);
         sb.Append(text);
+        sb.Replace("\n", "\\N");
         return sb.ToString();
-    }
-
-    private void AppendPreamble(StringBuilder sb)
-    {
-        sb.Append(_preamble);
-    }
-
-    private static WordStyleState ResolveStyle(
-        ReaderToken token,
-        Dictionary<(int, byte), KnownState> vocabStates)
-    {
-        if (vocabStates.TryGetValue((token.WordId, token.ReadingIndex), out var state)
-            && ThemePresets.Default.TryGetValue(state, out var style))
-        {
-            return style;
-        }
-
-        return ThemePresets.Unparsed;
     }
 }

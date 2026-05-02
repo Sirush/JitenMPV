@@ -51,7 +51,6 @@ public sealed class MpvIpcClient(string pipePath, ILogger logger) : IAsyncDispos
 
         request["request_id"] = requestId;
         var json = request.ToJsonString(MpvJson);
-        logger.LogDebug("→ mpv: {Json}", json);
         await _connection.SendLineAsync(json, ct);
 
         return await tcs.Task;
@@ -68,6 +67,9 @@ public sealed class MpvIpcClient(string pipePath, ILogger logger) : IAsyncDispos
         var result = await SendCommandAsync(["get_property", propertyName], ct);
         return result is null ? default : result.Value.Deserialize<T>();
     }
+
+    public Task<JsonElement?> GetPropertyRawAsync(string propertyName, CancellationToken ct)
+        => SendCommandAsync(["get_property", propertyName], ct);
 
     public Task ShowOverlayAsync(int id, string assText, CancellationToken ct)
         => SendNamedCommandAsync(new JsonObject
@@ -123,14 +125,16 @@ public sealed class MpvIpcClient(string pipePath, ILogger logger) : IAsyncDispos
 
     private void HandleEvent(JsonElement root, string? eventName)
     {
-        if (eventName == "property-change" && root.TryGetProperty("name", out var nameEl) && nameEl.GetString() == "sub-text")
-        {
-            string? text = null;
-            if (root.TryGetProperty("data", out var dataEl) && dataEl.ValueKind == JsonValueKind.String)
-                text = dataEl.GetString();
+        if (eventName != "property-change") return;
+        if (!root.TryGetProperty("name", out var nameEl)) return;
 
-            SubtitleTextChanged?.Invoke(text);
-        }
+        var propName = nameEl.GetString();
+        string? stringValue = null;
+        if (root.TryGetProperty("data", out var dataEl) && dataEl.ValueKind == JsonValueKind.String)
+            stringValue = dataEl.GetString();
+
+        if (propName == "sub-text")
+            SubtitleTextChanged?.Invoke(stringValue);
     }
 
     public async ValueTask DisposeAsync()

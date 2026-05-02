@@ -4,7 +4,7 @@ namespace JitenMPV.Core.Config;
 
 public static class SettingsManager
 {
-    private static readonly string ConfigDir = Path.Combine(
+    public static readonly string ConfigDir = Path.Combine(
                                                             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
                                                             "jiten-mpv");
 

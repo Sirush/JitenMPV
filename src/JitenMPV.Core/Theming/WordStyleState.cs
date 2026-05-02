@@ -4,15 +4,59 @@ public sealed class WordStyleState
 {
     public string? TextColor { get; init; }
     public string? OutlineColor { get; init; }
-    public string? TextColorBgr => TextColor is not null ? RgbToBgr(TextColor) : null;
-    public string? OutlineColorBgr => OutlineColor is not null ? RgbToBgr(OutlineColor) : null;
+    public string? ShadowColor { get; init; }
+
+    private string? _textColorBgr;
+    private string? _outlineColorBgr;
+    private string? _shadowColorBgr;
+    private bool _bgrComputed;
+
+    public string? TextColorBgr { get { EnsureBgr(); return _textColorBgr; } }
+    public string? OutlineColorBgr { get { EnsureBgr(); return _outlineColorBgr; } }
+    public string? ShadowColorBgr { get { EnsureBgr(); return _shadowColorBgr; } }
+
+    private void EnsureBgr()
+    {
+        if (_bgrComputed) return;
+        _textColorBgr = TextColor is not null ? RgbToBgr(TextColor) : null;
+        _outlineColorBgr = OutlineColor is not null ? RgbToBgr(OutlineColor) : null;
+        _shadowColorBgr = ShadowColor is not null ? RgbToBgr(ShadowColor) : null;
+        _bgrComputed = true;
+    }
+
     public double? OutlineSize { get; init; }
+    public double? ShadowDepth { get; init; }
     public int? TextOpacity { get; init; }
+    public int? OutlineOpacity { get; init; }
+    public int? ShadowOpacity { get; init; }
+    public double? Blur { get; init; }
     public bool? Bold { get; init; }
     public bool? Italic { get; init; }
     public bool? Underline { get; init; }
+    public bool? Strikethrough { get; init; }
+    public int? ScaleX { get; init; }
+    public int? ScaleY { get; init; }
 
-    private static string RgbToBgr(string hexRgb)
+    public WordStyleState MergeOver(WordStyleState baseStyle) => new()
+    {
+        TextColor = TextColor ?? baseStyle.TextColor,
+        OutlineColor = OutlineColor ?? baseStyle.OutlineColor,
+        ShadowColor = ShadowColor ?? baseStyle.ShadowColor,
+        OutlineSize = OutlineSize ?? baseStyle.OutlineSize,
+        ShadowDepth = ShadowDepth ?? baseStyle.ShadowDepth,
+        TextOpacity = TextOpacity ?? baseStyle.TextOpacity,
+        OutlineOpacity = OutlineOpacity ?? baseStyle.OutlineOpacity,
+        ShadowOpacity = ShadowOpacity ?? baseStyle.ShadowOpacity,
+        Blur = Blur ?? baseStyle.Blur,
+        Bold = Bold ?? baseStyle.Bold,
+        Italic = Italic ?? baseStyle.Italic,
+        Underline = Underline ?? baseStyle.Underline,
+        Strikethrough = Strikethrough ?? baseStyle.Strikethrough,
+        ScaleX = ScaleX ?? baseStyle.ScaleX,
+        ScaleY = ScaleY ?? baseStyle.ScaleY
+    };
+
+    internal static string RgbToBgr(string hexRgb)
     {
         var hex = hexRgb.TrimStart('#');
         if (hex.Length != 6) return hex;

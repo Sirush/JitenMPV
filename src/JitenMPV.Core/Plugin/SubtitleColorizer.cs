@@ -1,17 +1,25 @@
 using JitenMPV.Core.Api;
-using JitenMPV.Core.Api.Models;
 using JitenMPV.Core.Cache;
 using JitenMPV.Core.Rendering;
 using Microsoft.Extensions.Logging;
 
 namespace JitenMPV.Core.Plugin;
 
-public sealed class SubtitleColorizer(JitenApiClient api, ParseCache cache, OverlayRenderer renderer, ILogger logger)
+public sealed class SubtitleColorizer(
+    JitenApiClient api,
+    ParseCache cache,
+    OverlayRenderer renderer,
+    IPlusOneDetector? iPlusOneDetector,
+    FrequencyMarker? frequencyMarker,
+    ILogger logger)
 {
     public async Task<string> ColorizeAsync(string subtitleText, CancellationToken ct)
     {
         try
         {
+            if (!JapaneseDetector.ContainsJapanese(subtitleText))
+                return renderer.RenderPlain(subtitleText);
+
             var entry = cache.GetOrDefault(subtitleText);
             if (entry is null)
             {
@@ -20,7 +28,10 @@ public sealed class SubtitleColorizer(JitenApiClient api, ParseCache cache, Over
                 cache.Set(subtitleText, entry);
             }
 
-            return renderer.RenderSubtitle(subtitleText, entry.Tokens, entry.VocabStates);
+            var iPlusOne = iPlusOneDetector?.Detect(entry.Tokens, entry.VocabStates, entry.FrequencyRanks);
+            var freqWords = frequencyMarker?.Mark(entry.Tokens, entry.VocabStates, entry.FrequencyRanks);
+
+            return renderer.RenderSubtitle(subtitleText, entry, iPlusOne, freqWords);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {

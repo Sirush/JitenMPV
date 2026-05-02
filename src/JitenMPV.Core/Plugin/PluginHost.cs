@@ -3,6 +3,7 @@ using JitenMPV.Core.Cache;
 using JitenMPV.Core.Config;
 using JitenMPV.Core.Mpv;
 using JitenMPV.Core.Rendering;
+using JitenMPV.Core.Theming;
 using Microsoft.Extensions.Logging;
 
 namespace JitenMPV.Core.Plugin;
@@ -30,16 +31,34 @@ public sealed class PluginHost(string pipePath, ILogger logger)
         var http = new HttpClient { BaseAddress = new Uri(settings.ApiBaseUrl) };
         var apiClient = new JitenApiClient(http, settings.ApiKey, logger);
         var parseCache = new ParseCache();
-        var renderer = new OverlayRenderer(settings);
-        var colorizer = new SubtitleColorizer(apiClient, parseCache, renderer, logger);
+
+        if (!ThemePresets.All.TryGetValue(settings.Theme, out var theme))
+        {
+            logger.LogWarning("Unknown theme '{Theme}', falling back to Default", settings.Theme);
+            theme = ThemePresets.Default;
+        }
+        var styleResolver = new StyleResolver(
+            theme, ThemePresets.Unparsed,
+            settings.IPlusOneEnabled ? ThemePresets.IPlusOne : null,
+            settings.FrequencyMarkingEnabled ? ThemePresets.Frequency : null);
+
+        var renderer = new OverlayRenderer(settings, styleResolver);
+        var iPlusOne = settings.IPlusOneEnabled
+            ? new IPlusOneDetector(settings.IPlusOneMinTokens, settings.IPlusOneMaxFrequencyRank)
+            : null;
+        var freqMarker = settings.FrequencyMarkingEnabled
+            ? new FrequencyMarker(settings.FrequencyTopN, settings.FrequencyMarkAllStates)
+            : null;
+
+        var colorizer = new SubtitleColorizer(apiClient, parseCache, renderer, iPlusOne, freqMarker, logger);
+        var preParser = new PreParseService(apiClient, parseCache, logger);
 
         await using var ipcClient = new MpvIpcClient(pipePath, logger);
 
         try
         {
-            logger.LogInformation("Connecting to mpv...");
             await ipcClient.ConnectAsync(ct);
-            logger.LogInformation("Connected.");
+            logger.LogInformation("Connected to mpv");
 
             ipcClient.SubtitleTextChanged += text =>
             {
@@ -53,17 +72,15 @@ public sealed class PluginHost(string pipePath, ILogger logger)
 
             var readLoop = ipcClient.RunAsync(ct);
 
-            logger.LogInformation("Disabling native subs and observing sub-text.");
             await ipcClient.SetPropertyAsync("sub-visibility", "no", ct);
             await ipcClient.ObservePropertyAsync("sub-text", 1, ct);
+
+            _ = RunSafe(() => StartPreParseAsync(ipcClient, preParser, ct));
 
             logger.LogInformation("JitenMPV plugin running.");
             await readLoop;
         }
-        catch (OperationCanceledException)
-        {
-            logger.LogInformation("Plugin shutting down");
-        }
+        catch (OperationCanceledException) { }
         catch (IOException ex)
         {
             logger.LogError(ex, "IPC connection lost");
@@ -82,6 +99,34 @@ public sealed class PluginHost(string pipePath, ILogger logger)
             }
 
             http.Dispose();
+        }
+    }
+
+    private async Task StartPreParseAsync(MpvIpcClient ipc, PreParseService preParser, CancellationToken ct)
+    {
+        string? subFile = null;
+        try
+        {
+            subFile = await ipc.GetPropertyAsync<string>("current-tracks/sub/external-filename", ct);
+        }
+        catch { /* property may not exist */ }
+
+        if (!string.IsNullOrEmpty(subFile))
+            await preParser.PreParseFileAsync(subFile, ct);
+        else
+            await preParser.PreParseEmbeddedAsync(ipc, ct);
+    }
+
+    private async Task RunSafe(Func<Task> action)
+    {
+        try
+        {
+            await action();
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Background task failed");
         }
     }
 

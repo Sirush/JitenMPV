@@ -23,8 +23,11 @@ public sealed class JitenApiClient
     }
 
     public async Task<ReaderParseResponse> ParseAsync(string text, CancellationToken ct)
+        => await ParseBatchAsync([text], ct);
+
+    public async Task<ReaderParseResponse> ParseBatchAsync(string[] texts, CancellationToken ct)
     {
-        var request = new ReaderParseRequest { Text = [text] };
+        var request = new ReaderParseRequest { Text = texts };
         var response = await _http.PostAsJsonAsync("/api/reader/parse", request, JsonOptions, ct);
 
         if (!response.IsSuccessStatusCode)
