@@ -1,0 +1,22 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "JitenMPV.Core", "src\JitenMPV.Core\JitenMPV.Core.csproj", "{981A7C56-ED70-4192-8F82-EB521DAFB562}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "JitenMPV.App", "src\JitenMPV.App\JitenMPV.App.csproj", "{44CDA393-0CD0-4921-B3D2-6887BD4F38E3}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{981A7C56-ED70-4192-8F82-EB521DAFB562}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{981A7C56-ED70-4192-8F82-EB521DAFB562}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{981A7C56-ED70-4192-8F82-EB521DAFB562}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{981A7C56-ED70-4192-8F82-EB521DAFB562}.Release|Any CPU.Build.0 = Release|Any CPU
+		{44CDA393-0CD0-4921-B3D2-6887BD4F38E3}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{44CDA393-0CD0-4921-B3D2-6887BD4F38E3}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{44CDA393-0CD0-4921-B3D2-6887BD4F38E3}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{44CDA393-0CD0-4921-B3D2-6887BD4F38E3}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+EndGlobal
