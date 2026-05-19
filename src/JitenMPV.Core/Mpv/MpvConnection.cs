@@ -8,6 +8,7 @@ public sealed class MpvConnection(ILogger logger) : IAsyncDisposable
     private NamedPipeClientStream? _pipe;
     private StreamReader? _reader;
     private StreamWriter? _writer;
+    private readonly SemaphoreSlim _writeLock = new(1, 1);
 
     public bool IsConnected => _pipe?.IsConnected == true;
 
@@ -63,7 +64,15 @@ public sealed class MpvConnection(ILogger logger) : IAsyncDisposable
         if (_writer is null)
             throw new InvalidOperationException("Not connected");
 
-        await _writer.WriteLineAsync(line.AsMemory(), ct);
+        await _writeLock.WaitAsync(ct);
+        try
+        {
+            await _writer.WriteLineAsync(line.AsMemory(), ct);
+        }
+        finally
+        {
+            _writeLock.Release();
+        }
     }
 
     public async IAsyncEnumerable<string> ReadLinesAsync(

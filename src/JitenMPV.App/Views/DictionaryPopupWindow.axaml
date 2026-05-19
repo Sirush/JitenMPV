@@ -1,0 +1,185 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:JitenMPV.App.ViewModels"
+        x:Class="JitenMPV.App.Views.DictionaryPopupWindow"
+        x:DataType="vm:PopupViewModel"
+        SystemDecorations="None"
+        TransparencyLevelHint="Transparent"
+        Background="Transparent"
+        ShowInTaskbar="False"
+        Topmost="True"
+        CanResize="False"
+        SizeToContent="WidthAndHeight"
+        MaxWidth="550"
+        ShowActivated="False">
+
+    <Window.Styles>
+        <Style Selector="Button.state-btn">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="1.5"/>
+            <Setter Property="Padding" Value="10,4"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="CornerRadius" Value="4"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="MinWidth" Value="0"/>
+            <Setter Property="MinHeight" Value="0"/>
+        </Style>
+        <Style Selector="Button.state-neverforget">
+            <Setter Property="Foreground" Value="#55DD55"/>
+            <Setter Property="BorderBrush" Value="#55DD55"/>
+        </Style>
+        <Style Selector="Button.state-neverforget:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="#1A55DD55"/>
+        </Style>
+        <Style Selector="Button.state-blacklist">
+            <Setter Property="Foreground" Value="#CCCCCC"/>
+            <Setter Property="BorderBrush" Value="#999999"/>
+        </Style>
+        <Style Selector="Button.state-blacklist:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="#1ACCCCCC"/>
+        </Style>
+        <Style Selector="Button.state-suspend">
+            <Setter Property="Foreground" Value="#DDAA44"/>
+            <Setter Property="BorderBrush" Value="#DDAA44"/>
+        </Style>
+        <Style Selector="Button.state-suspend:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="#1ADDAA44"/>
+        </Style>
+        <Style Selector="Button.state-forget">
+            <Setter Property="Foreground" Value="#DD4444"/>
+            <Setter Property="BorderBrush" Value="#DD4444"/>
+        </Style>
+        <Style Selector="Button.state-forget:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="#1ADD4444"/>
+        </Style>
+
+        <Style Selector="Button.review-btn">
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="12,4"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="CornerRadius" Value="4"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="MinWidth" Value="0"/>
+            <Setter Property="MinHeight" Value="0"/>
+        </Style>
+        <Style Selector="Button.review-again">
+            <Setter Property="Background" Value="#442222"/>
+            <Setter Property="Foreground" Value="#FF6666"/>
+            <Setter Property="BorderBrush" Value="#883333"/>
+        </Style>
+        <Style Selector="Button.review-again:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="#553333"/>
+        </Style>
+        <Style Selector="Button.review-hard">
+            <Setter Property="Background" Value="#443322"/>
+            <Setter Property="Foreground" Value="#DDAA55"/>
+            <Setter Property="BorderBrush" Value="#886633"/>
+        </Style>
+        <Style Selector="Button.review-hard:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="#554433"/>
+        </Style>
+        <Style Selector="Button.review-good">
+            <Setter Property="Background" Value="#224422"/>
+            <Setter Property="Foreground" Value="#66DD66"/>
+            <Setter Property="BorderBrush" Value="#338833"/>
+        </Style>
+        <Style Selector="Button.review-good:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="#335533"/>
+        </Style>
+        <Style Selector="Button.review-easy">
+            <Setter Property="Background" Value="#222244"/>
+            <Setter Property="Foreground" Value="#6688FF"/>
+            <Setter Property="BorderBrush" Value="#334488"/>
+        </Style>
+        <Style Selector="Button.review-easy:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="#333355"/>
+        </Style>
+    </Window.Styles>
+
+    <Border Background="#E6191919"
+            CornerRadius="8"
+            Padding="14"
+            BorderBrush="#444444"
+            BorderThickness="1">
+        <StackPanel Spacing="6" MinWidth="220">
+            <WrapPanel IsVisible="{Binding ShowStateActions}">
+                <Button Classes="state-btn state-neverforget"
+                        Content="{Binding MasterLabel}"
+                        Command="{Binding NeverForgetCommand}"
+                        IsVisible="{Binding ShowNeverForget}"
+                        Margin="0,0,6,4"/>
+                <Button Classes="state-btn state-blacklist"
+                        Content="{Binding BlacklistLabel}"
+                        Command="{Binding BlacklistCommand}"
+                        IsVisible="{Binding ShowBlacklist}"
+                        Margin="0,0,6,4"/>
+                <Button Classes="state-btn state-suspend"
+                        Content="{Binding SuspendLabel}"
+                        Command="{Binding SuspendCommand}"
+                        IsVisible="{Binding ShowSuspend}"
+                        Margin="0,0,6,4"/>
+                <Button Classes="state-btn state-forget"
+                        Content="Forget"
+                        Command="{Binding ForgetCommand}"
+                        IsVisible="{Binding ShowForget}"
+                        Margin="0,0,6,4"/>
+            </WrapPanel>
+            <StackPanel Orientation="Horizontal" Spacing="6"
+                        IsVisible="{Binding ShowReview}">
+                <Button Classes="review-btn review-again" Content="again" Command="{Binding ReviewAgainCommand}"/>
+                <Button Classes="review-btn review-hard" Content="hard" Command="{Binding ReviewHardCommand}"
+                        IsVisible="{Binding ShowHardEasy}"/>
+                <Button Classes="review-btn review-good" Content="good" Command="{Binding ReviewGoodCommand}"/>
+                <Button Classes="review-btn review-easy" Content="easy" Command="{Binding ReviewEasyCommand}"
+                        IsVisible="{Binding ShowHardEasy}"/>
+            </StackPanel>
+            <TextBlock Text="{Binding Reading}"
+                       FontSize="14" Foreground="#AAAAAA"
+                       IsVisible="{Binding ShowReading}"
+                       Margin="0,2,0,-4"/>
+            <Grid ColumnDefinitions="*,Auto">
+                <TextBlock Grid.Column="0"
+                           Text="{Binding Spelling}"
+                           FontSize="28" FontWeight="Bold"
+                           Foreground="White"/>
+                <StackPanel Grid.Column="1" VerticalAlignment="Top"
+                            HorizontalAlignment="Right" Spacing="2">
+                    <TextBlock Text="{Binding StateLabel}"
+                               FontSize="13" Foreground="#888888"
+                               HorizontalAlignment="Right"/>
+                    <TextBlock FontSize="13" Foreground="#666666"
+                               IsVisible="{Binding ShowFrequency}"
+                               HorizontalAlignment="Right">
+                        <Run Text="#"/><Run Text="{Binding FrequencyRank}"/>
+                    </TextBlock>
+                </StackPanel>
+            </Grid>
+            <TextBlock FontSize="13" Foreground="#AAAAAA"
+                       IsVisible="{Binding ShowPitch}">
+                <Run Text="Pitch: "/><Run Text="{Binding PitchAccents}"/>
+            </TextBlock>
+            <Border IsVisible="{Binding ShowConjugation}"
+                    BorderBrush="#444444" BorderThickness="1"
+                    CornerRadius="4" Padding="8,5">
+                <TextBlock FontSize="13" Foreground="#AAAAAA">
+                    <Run Text="Conjugation: " FontWeight="SemiBold"/><Run Text="{Binding Conjugation}"/>
+                </TextBlock>
+            </Border>
+            <TextBlock Text="{Binding PartsOfSpeech}"
+                       FontSize="13" Foreground="#7799CC"
+                       IsVisible="{Binding ShowPartsOfSpeech}"
+                       TextWrapping="Wrap"/>
+            <ItemsControl ItemsSource="{Binding Meanings}">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <TextBlock Text="{Binding}"
+                                   FontSize="14" Foreground="#DDDDDD"
+                                   TextWrapping="Wrap"
+                                   Margin="0,1"/>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+
+        </StackPanel>
+    </Border>
+</Window>

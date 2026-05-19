@@ -6,8 +6,8 @@ public sealed class FrequencyMarker(int topN = 10000, bool markAllStates = false
 {
     public HashSet<(int WordId, byte ReadingIndex)>? Mark(
         List<ReaderToken> tokens,
-        Dictionary<(int WordId, byte ReadingIndex), KnownState> vocabStates,
-        Dictionary<(int WordId, byte ReadingIndex), int> frequencyRanks)
+        IDictionary<(int WordId, byte ReadingIndex), KnownState> vocabStates,
+        IDictionary<(int WordId, byte ReadingIndex), int> frequencyRanks)
     {
         HashSet<(int WordId, byte ReadingIndex)>? result = null;
 

@@ -1,6 +1,8 @@
+using System.Text.Json;
 using JitenMPV.Core.Api;
 using JitenMPV.Core.Cache;
 using JitenMPV.Core.Config;
+using JitenMPV.Core.Interaction;
 using JitenMPV.Core.Mpv;
 using JitenMPV.Core.Rendering;
 using JitenMPV.Core.Theming;
@@ -8,9 +10,9 @@ using Microsoft.Extensions.Logging;
 
 namespace JitenMPV.Core.Plugin;
 
-public sealed class PluginHost(string pipePath, ILogger logger)
+public sealed class PluginHost(string pipePath, ILogger logger, IPopupPresenter popupPresenter)
 {
-    private const int SubtitleOverlayId = 1;
+    internal const int SubtitleOverlayId = 1;
 
     private CancellationTokenSource? _currentSubtitleCts;
 
@@ -42,7 +44,8 @@ public sealed class PluginHost(string pipePath, ILogger logger)
             settings.IPlusOneEnabled ? ThemePresets.IPlusOne : null,
             settings.FrequencyMarkingEnabled ? ThemePresets.Frequency : null);
 
-        var renderer = new OverlayRenderer(settings, styleResolver);
+        var osd = new OsdState();
+        var renderer = new OverlayRenderer(settings, styleResolver, osd);
         var iPlusOne = settings.IPlusOneEnabled
             ? new IPlusOneDetector(settings.IPlusOneMinTokens, settings.IPlusOneMaxFrequencyRank)
             : null;
@@ -52,6 +55,14 @@ public sealed class PluginHost(string pipePath, ILogger logger)
 
         var colorizer = new SubtitleColorizer(apiClient, parseCache, renderer, iPlusOne, freqMarker, logger);
         var preParser = new PreParseService(apiClient, parseCache, logger);
+        var measurer = new SubtitleMeasurer(settings, osd);
+
+        var hitTest = new HitTestService();
+        var blurManager = new BlurHoverManager(settings);
+        var statusOverlay = new StatusOverlay(settings);
+        var wordAction = new WordActionService(apiClient, parseCache, statusOverlay, logger);
+        var reviewService = new InlineReviewService(apiClient, parseCache, statusOverlay, logger);
+        var autopause = new AutopauseService(settings);
 
         await using var ipcClient = new MpvIpcClient(pipePath, logger);
 
@@ -60,20 +71,52 @@ public sealed class PluginHost(string pipePath, ILogger logger)
             await ipcClient.ConnectAsync(ct);
             logger.LogInformation("Connected to mpv");
 
+            var dataBuilder = new PopupDataBuilder(settings);
+            var popupManager = new PopupManager(dataBuilder, popupPresenter);
+
+            using var interaction = new InteractionHandler(
+                ipcClient, hitTest, blurManager, popupManager, autopause,
+                wordAction, reviewService, colorizer, settings, osd, logger);
+
             ipcClient.SubtitleTextChanged += text =>
             {
-                var prev = _currentSubtitleCts;
-                prev?.Cancel();
+                TaskHelper.CancelAndDispose(ref _currentSubtitleCts);
                 var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
                 _currentSubtitleCts = linkedCts;
-                _ = OnSubtitleChangedAsync(text, ipcClient, colorizer, linkedCts.Token);
-                prev?.Dispose();
+                _ = OnSubtitleChangedAsync(text, ipcClient, colorizer,
+                    measurer, interaction, linkedCts.Token)
+                    .ContinueWith(_ => linkedCts.Dispose(), TaskScheduler.Default);
+            };
+
+            ipcClient.MouseEvent += e =>
+            {
+                _ = RunSafe(() => interaction.OnMouseEventAsync(e, ct));
+            };
+
+            ipcClient.PropertyChanged += (name, data) =>
+            {
+                if (data.ValueKind != JsonValueKind.Number) return;
+                int value = data.GetInt32();
+                bool changed = name switch
+                {
+                    "osd-width" => osd.Update(value, osd.Height),
+                    "osd-height" => osd.Update(osd.Width, value),
+                    _ => false
+                };
+                if (changed) renderer.RebuildPreamble();
             };
 
             var readLoop = ipcClient.RunAsync(ct);
 
             await ipcClient.SetPropertyAsync("sub-visibility", "no", ct);
             await ipcClient.ObservePropertyAsync("sub-text", 1, ct);
+            await ipcClient.ObservePropertyAsync("osd-width", 2, ct);
+            await ipcClient.ObservePropertyAsync("osd-height", 3, ct);
+
+            var widthTask = ipcClient.GetPropertyAsync<int>("osd-width", ct);
+            var heightTask = ipcClient.GetPropertyAsync<int>("osd-height", ct);
+            osd.Update(await widthTask, await heightTask);
+            renderer.RebuildPreamble();
 
             _ = RunSafe(() => StartPreParseAsync(ipcClient, preParser, ct));
 
@@ -90,14 +133,14 @@ public sealed class PluginHost(string pipePath, ILogger logger)
             try
             {
                 using var cleanupCts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
-                await ipcClient.RemoveOverlayAsync(SubtitleOverlayId, cleanupCts.Token);
-                await ipcClient.SetPropertyAsync("sub-visibility", "yes", cleanupCts.Token);
+                var cct = cleanupCts.Token;
+                await ipcClient.RemoveOverlayAsync(SubtitleOverlayId, cct);
+                await ipcClient.RemoveOverlayAsync(StatusOverlay.StatusLayerId, cct);
+                await ipcClient.SetPropertyAsync("sub-visibility", "yes", cct);
             }
-            catch
-            {
-                // best-effort cleanup
-            }
+            catch { }
 
+            statusOverlay.Dispose();
             http.Dispose();
         }
     }
@@ -109,7 +152,7 @@ public sealed class PluginHost(string pipePath, ILogger logger)
         {
             subFile = await ipc.GetPropertyAsync<string>("current-tracks/sub/external-filename", ct);
         }
-        catch { /* property may not exist */ }
+        catch { }
 
         if (!string.IsNullOrEmpty(subFile))
             await preParser.PreParseFileAsync(subFile, ct);
@@ -117,39 +160,34 @@ public sealed class PluginHost(string pipePath, ILogger logger)
             await preParser.PreParseEmbeddedAsync(ipc, ct);
     }
 
-    private async Task RunSafe(Func<Task> action)
-    {
-        try
-        {
-            await action();
-        }
-        catch (OperationCanceledException) { }
-        catch (Exception ex)
-        {
-            logger.LogError(ex, "Background task failed");
-        }
-    }
+    private Task RunSafe(Func<Task> action)
+        => TaskHelper.RunSafe(action, logger);
 
     private async Task OnSubtitleChangedAsync(
-        string? text,
-        MpvIpcClient ipcClient,
+        string? text, MpvIpcClient ipcClient,
         SubtitleColorizer colorizer,
+        SubtitleMeasurer measurer, InteractionHandler interaction,
         CancellationToken ct)
     {
         try
         {
             if (string.IsNullOrWhiteSpace(text))
             {
+                await interaction.OnSubtitleRenderedAsync(null, null, [], ct);
                 await ipcClient.RemoveOverlayAsync(SubtitleOverlayId, ct);
                 return;
             }
 
-            var ass = await colorizer.ColorizeAsync(text, ct);
+            var (ass, entry) = await colorizer.ColorizeAsync(text, ct);
             await ipcClient.ShowOverlayAsync(SubtitleOverlayId, ass, ct);
+
+            List<WordRect> layout = [];
+            if (entry is not null)
+                layout = await measurer.MeasureAsync(text, entry, ipcClient, ct);
+
+            await interaction.OnSubtitleRenderedAsync(text, entry, layout, ct);
         }
-        catch (OperationCanceledException)
-        {
-        }
+        catch (OperationCanceledException) { }
         catch (Exception ex)
         {
             logger.LogError(ex, "Error processing subtitle change");

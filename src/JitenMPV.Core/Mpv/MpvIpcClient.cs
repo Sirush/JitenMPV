@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using JitenMPV.Core.Rendering;
 using Microsoft.Extensions.Logging;
 
 namespace JitenMPV.Core.Mpv;
@@ -17,8 +18,10 @@ public sealed class MpvIpcClient(string pipePath, ILogger logger) : IAsyncDispos
     private int _nextRequestId;
 
     public event Action<string?>? SubtitleTextChanged;
+    public event Action<MouseEventArgs>? MouseEvent;
+    public event Action<string, JsonElement>? PropertyChanged;
 
-    private string _pipePath { get; } = pipePath;
+    private readonly string _pipePath = pipePath;
 
     public async Task ConnectAsync(CancellationToken ct)
     {
@@ -78,8 +81,33 @@ public sealed class MpvIpcClient(string pipePath, ILogger logger) : IAsyncDispos
             ["id"] = id,
             ["format"] = "ass-events",
             ["data"] = assText,
-            ["res_y"] = 720
+            ["res_y"] = OverlayRenderer.OverlayResY
         }, ct);
+
+    public async Task<OverlayBounds?> MeasureOverlayAsync(int id, string assText, CancellationToken ct)
+    {
+        var result = await SendNamedCommandAsync(new JsonObject
+        {
+            ["name"] = "osd-overlay",
+            ["id"] = id,
+            ["format"] = "ass-events",
+            ["data"] = assText,
+            ["res_y"] = OverlayRenderer.OverlayResY,
+            ["hidden"] = true,
+            ["compute_bounds"] = true
+        }, ct);
+
+        if (result is not { } el)
+            return null;
+        if (el.ValueKind != JsonValueKind.Object)
+            return null;
+        if (!el.TryGetProperty("x0", out var x0El))
+            return null;
+
+        return new OverlayBounds(
+            x0El.GetDouble(), el.GetProperty("y0").GetDouble(),
+            el.GetProperty("x1").GetDouble(), el.GetProperty("y1").GetDouble());
+    }
 
     public Task RemoveOverlayAsync(int id, CancellationToken ct)
         => SendNamedCommandAsync(new JsonObject
@@ -123,18 +151,71 @@ public sealed class MpvIpcClient(string pipePath, ILogger logger) : IAsyncDispos
         _pending.Clear();
     }
 
+    private static readonly Dictionary<string, MouseEventType> MouseEventMap = new()
+    {
+        ["jiten-mouse-move"] = MouseEventType.Move,
+        ["jiten-mouse-left-press"] = MouseEventType.LeftPress,
+        ["jiten-mouse-left-release"] = MouseEventType.LeftRelease,
+        ["jiten-double-click"] = MouseEventType.DoubleClick,
+        ["jiten-mouse-leave"] = MouseEventType.Leave
+    };
+
     private void HandleEvent(JsonElement root, string? eventName)
     {
-        if (eventName != "property-change") return;
-        if (!root.TryGetProperty("name", out var nameEl)) return;
+        switch (eventName)
+        {
+            case "property-change":
+                HandlePropertyChange(root);
+                break;
+            case "client-message":
+                HandleClientMessage(root);
+                break;
+        }
+    }
 
+    private void HandlePropertyChange(JsonElement root)
+    {
+        if (!root.TryGetProperty("name", out var nameEl)) return;
         var propName = nameEl.GetString();
-        string? stringValue = null;
-        if (root.TryGetProperty("data", out var dataEl) && dataEl.ValueKind == JsonValueKind.String)
-            stringValue = dataEl.GetString();
 
         if (propName == "sub-text")
+        {
+            string? stringValue = null;
+            if (root.TryGetProperty("data", out var dataEl) && dataEl.ValueKind == JsonValueKind.String)
+                stringValue = dataEl.GetString();
             SubtitleTextChanged?.Invoke(stringValue);
+        }
+        else if (propName is not null && root.TryGetProperty("data", out var data))
+        {
+            PropertyChanged?.Invoke(propName, data.Clone());
+        }
+    }
+
+    private void HandleClientMessage(JsonElement root)
+    {
+        if (!root.TryGetProperty("args", out var argsEl) || argsEl.ValueKind != JsonValueKind.Array)
+            return;
+
+        var argsLen = argsEl.GetArrayLength();
+        if (argsLen < 1) return;
+
+        var messageName = argsEl[0].GetString();
+        if (messageName is null || !MouseEventMap.TryGetValue(messageName, out var eventType))
+            return;
+
+        if (eventType == MouseEventType.Leave)
+        {
+            MouseEvent?.Invoke(new MouseEventArgs(eventType, 0, 0));
+            return;
+        }
+
+        if (argsLen < 3) return;
+
+        if (!double.TryParse(argsEl[1].GetString(), out var x) ||
+            !double.TryParse(argsEl[2].GetString(), out var y))
+            return;
+
+        MouseEvent?.Invoke(new MouseEventArgs(eventType, x, y));
     }
 
     public async ValueTask DisposeAsync()

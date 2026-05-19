@@ -6,8 +6,8 @@ public sealed class IPlusOneDetector(int minTokens = 3, int maxFrequencyRank = 1
 {
     public HashSet<(int WordId, byte ReadingIndex)>? Detect(
         List<ReaderToken> tokens,
-        Dictionary<(int WordId, byte ReadingIndex), KnownState> vocabStates,
-        Dictionary<(int WordId, byte ReadingIndex), int>? frequencyRanks = null)
+        IDictionary<(int WordId, byte ReadingIndex), KnownState> vocabStates,
+        IDictionary<(int WordId, byte ReadingIndex), int>? frequencyRanks = null)
     {
         if (tokens.Count < minTokens) return null;
 

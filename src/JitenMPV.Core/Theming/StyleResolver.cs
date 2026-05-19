@@ -10,7 +10,7 @@ public sealed class StyleResolver(
 {
     public WordStyleState Resolve(
         ReaderToken token,
-        Dictionary<(int WordId, byte ReadingIndex), KnownState> vocabStates,
+        IDictionary<(int WordId, byte ReadingIndex), KnownState> vocabStates,
         HashSet<(int WordId, byte ReadingIndex)>? iPlusOneWords = null,
         HashSet<(int WordId, byte ReadingIndex)>? frequencyWords = null)
     {
