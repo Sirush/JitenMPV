@@ -13,12 +13,18 @@ public sealed class SubtitleColorizer(
     FrequencyMarker? frequencyMarker,
     ILogger logger)
 {
-    public async Task<string> ColorizeAsync(string subtitleText, CancellationToken ct)
+    public async Task<(string Ass, ParseCacheEntry? Entry)> ColorizeAsync(string subtitleText, CancellationToken ct)
+        => await ColorizeWithRevealAsync(subtitleText, null, ct);
+
+    public async Task<(string Ass, ParseCacheEntry? Entry)> ColorizeWithRevealAsync(
+        string subtitleText,
+        HashSet<(int WordId, byte ReadingIndex)>? revealedWords,
+        CancellationToken ct)
     {
         try
         {
             if (!JapaneseDetector.ContainsJapanese(subtitleText))
-                return renderer.RenderPlain(subtitleText);
+                return (renderer.RenderPlain(subtitleText), null);
 
             var entry = cache.GetOrDefault(subtitleText);
             if (entry is null)
@@ -31,12 +37,12 @@ public sealed class SubtitleColorizer(
             var iPlusOne = iPlusOneDetector?.Detect(entry.Tokens, entry.VocabStates, entry.FrequencyRanks);
             var freqWords = frequencyMarker?.Mark(entry.Tokens, entry.VocabStates, entry.FrequencyRanks);
 
-            return renderer.RenderSubtitle(subtitleText, entry, iPlusOne, freqWords);
+            return (renderer.RenderSubtitle(subtitleText, entry, iPlusOne, freqWords, revealedWords), entry);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             logger.LogError(ex, "Failed to colorize subtitle, falling back to plain rendering");
-            return renderer.RenderPlain(subtitleText);
+            return (renderer.RenderPlain(subtitleText), null);
         }
     }
 }

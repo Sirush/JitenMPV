@@ -48,4 +48,26 @@ public static class AssTagBuilder
 
         sb.Append('}');
     }
+
+    public static void AppendEscapedText(StringBuilder sb, string text, int start, int length)
+    {
+        int end = start + length;
+        for (int i = start; i < end; i++)
+        {
+            switch (text[i])
+            {
+                case '\n': sb.Append("\\N"); break;
+                case '{': sb.Append("\\{"); break;
+                case '}': sb.Append("\\}"); break;
+                default: sb.Append(text[i]); break;
+            }
+        }
+    }
+
+    public static string EscapeText(string text)
+    {
+        var sb = new StringBuilder(text.Length);
+        AppendEscapedText(sb, text, 0, text.Length);
+        return sb.ToString();
+    }
 }
