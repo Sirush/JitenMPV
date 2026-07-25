@@ -72,7 +72,7 @@ public partial class SettingsViewModel : ViewModelBase
     [ObservableProperty] private bool _miningEnabled;
     [ObservableProperty] private bool _miningCaptureSentence;
 
-    [ObservableProperty] private bool _inlineReviewEnabled;
+    [ObservableProperty] private bool _reviewsEnabled;
 
     [ObservableProperty] private int _cacheSize;
     [ObservableProperty] private bool _preparseEnabled;
@@ -164,7 +164,7 @@ public partial class SettingsViewModel : ViewModelBase
         AutopauseDelayMs = s.AutopauseDelayMs;
         MiningEnabled = s.MiningEnabled;
         MiningCaptureSentence = s.MiningCaptureSentence;
-        InlineReviewEnabled = s.InlineReviewEnabled;
+        ReviewsEnabled = s.ReviewsEnabled;
         CacheSize = s.CacheSize;
         PreparseEnabled = s.PreparseEnabled;
         PreparseBatchSize = s.PreparseBatchSize;
@@ -256,7 +256,7 @@ public partial class SettingsViewModel : ViewModelBase
             AutopauseDelayMs = AutopauseDelayMs,
             MiningEnabled = MiningEnabled,
             MiningCaptureSentence = MiningCaptureSentence,
-            InlineReviewEnabled = InlineReviewEnabled,
+            ReviewsEnabled = ReviewsEnabled,
             CacheSize = CacheSize,
             PreparseEnabled = PreparseEnabled,
             PreparseBatchSize = PreparseBatchSize,
@@ -401,7 +401,7 @@ public partial class SettingsViewModel : ViewModelBase
                 AutopauseDelayMs = defaults.AutopauseDelayMs;
                 MiningEnabled = defaults.MiningEnabled;
                 MiningCaptureSentence = defaults.MiningCaptureSentence;
-                InlineReviewEnabled = defaults.InlineReviewEnabled;
+                ReviewsEnabled = defaults.ReviewsEnabled;
                 break;
             case 3:
                 PopupTrigger = defaults.PopupTrigger;

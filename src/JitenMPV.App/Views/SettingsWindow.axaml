@@ -435,10 +435,14 @@
 
             <Border Background="#18181b" BorderBrush="#3f3f46" BorderThickness="1"
                     CornerRadius="8" Padding="16">
-              <StackPanel Orientation="Horizontal" Spacing="8">
-                <ToggleSwitch IsChecked="{Binding InlineReviewEnabled}" />
-                <TextBlock Text="Inline Review" FontSize="15" FontWeight="Medium"
-                           VerticalAlignment="Center" Foreground="#ffffff" />
+              <StackPanel Spacing="6">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                  <ToggleSwitch IsChecked="{Binding ReviewsEnabled}" />
+                  <TextBlock Text="Reviews" FontSize="15" FontWeight="Medium"
+                             VerticalAlignment="Center" Foreground="#ffffff" />
+                </StackPanel>
+                <TextBlock Text="Grade cards from the popup. Turning this off hides the grade buttons and unbinds the review keys."
+                           Foreground="#a1a1aa" FontSize="13" TextWrapping="Wrap" />
               </StackPanel>
             </Border>
           </StackPanel>

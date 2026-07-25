@@ -17,24 +17,40 @@ public static class SettingsManager
         if (!File.Exists(ConfigPath))
             return new PluginSettings();
 
-        PluginSettings settings;
         try
         {
             var json = await File.ReadAllTextAsync(ConfigPath, ct);
-            settings = JsonSerializer.Deserialize<PluginSettings>(json, JsonOptions) ?? new PluginSettings();
+            var settings = JsonSerializer.Deserialize<PluginSettings>(json, JsonOptions) ?? new PluginSettings();
+            ApplyLegacyMigrations(json, settings);
+            return settings;
         }
         catch (Exception ex) when (ex is JsonException or IOException)
         {
             return new PluginSettings();
         }
+    }
 
-        if (settings.BottomMargin != 50 && settings.SubtitleMarginY == 50
-            && settings.SubtitleAlignment == 2)
+    /// Reads keys that no longer exist on PluginSettings, so they must come from the raw document.
+    /// Migrated values are dropped from disk by the next save.
+    private static void ApplyLegacyMigrations(string json, PluginSettings settings)
+    {
+        using var doc = JsonDocument.Parse(json);
+        if (doc.RootElement.ValueKind != JsonValueKind.Object) return;
+
+        if (doc.RootElement.TryGetProperty("bottom_margin", out var bottomMargin)
+            && bottomMargin.ValueKind == JsonValueKind.Number
+            && bottomMargin.TryGetInt32(out var margin)
+            && margin != 50 && settings.SubtitleMarginY == 50 && settings.SubtitleAlignment == 2)
         {
-            settings.SubtitleMarginY = settings.BottomMargin;
+            settings.SubtitleMarginY = margin;
         }
 
-        return settings;
+        if (!doc.RootElement.TryGetProperty("reviews_enabled", out _)
+            && doc.RootElement.TryGetProperty("inline_review_enabled", out var legacyReviews)
+            && legacyReviews.ValueKind == JsonValueKind.False)
+        {
+            settings.ReviewsEnabled = false;
+        }
     }
 
     public static async Task SaveAsync(PluginSettings settings, CancellationToken ct = default)

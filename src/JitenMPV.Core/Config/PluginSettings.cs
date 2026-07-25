@@ -22,9 +22,6 @@ public sealed class PluginSettings
     [JsonPropertyName("border_size")]
     public double BorderSize { get; set; } = 3.0;
 
-    [JsonPropertyName("bottom_margin")]
-    public int BottomMargin { get; set; } = 50;
-
     [JsonPropertyName("subtitle_alignment")]
     public int SubtitleAlignment { get; set; } = 2;
 
@@ -136,8 +133,10 @@ public sealed class PluginSettings
     [JsonPropertyName("mining_capture_sentence")]
     public bool MiningCaptureSentence { get; set; } = true;
 
-    [JsonPropertyName("inline_review_enabled")]
-    public bool InlineReviewEnabled { get; set; } = true;
+    /// Master switch for SRS grading: gates the popup grade buttons, the review keybinds and the
+    /// action dispatch. Mirrors the Reader extension's jitenDisableReviews.
+    [JsonPropertyName("reviews_enabled")]
+    public bool ReviewsEnabled { get; set; } = true;
 
     [JsonPropertyName("cache_size")]
     public int CacheSize { get; set; } = 2000;

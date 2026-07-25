@@ -257,6 +257,10 @@ public sealed class InteractionHandler : IDisposable
     {
         if (_currentEntry is null || _currentText is null) return;
 
+        // Keybinds are reconfigured asynchronously in the Lua process, so a grade can still arrive
+        // for a short window after reviews are switched off.
+        if (action.IsReview() && !_settings.ReviewsEnabled) return;
+
         var key = _popup.CurrentWord;
         if (key is null) return;
 

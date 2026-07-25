@@ -43,7 +43,7 @@ public sealed class PopupDataBuilder(PluginSettings settings)
             IsBlacklisted = isBlacklisted,
             IsSuspended = isSuspended,
 
-            ShowReview = settings.PopupShowReview,
+            ShowReview = settings.ReviewsEnabled && settings.PopupShowReview,
             UseTwoGrades = settings.PopupUseTwoGrades,
 
             PopupBgColor = settings.PopupBgColor,

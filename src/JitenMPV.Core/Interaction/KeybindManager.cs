@@ -18,7 +18,8 @@ public sealed class KeybindManager
         _logger = logger;
     }
 
-    public async Task ConfigureKeybindsAsync(Dictionary<string, string>? keybinds, CancellationToken ct)
+    public async Task ConfigureKeybindsAsync(Dictionary<string, string>? keybinds, bool reviewsEnabled,
+        CancellationToken ct)
     {
         bool wasEnabled = _enabled;
         if (wasEnabled)
@@ -26,7 +27,9 @@ public sealed class KeybindManager
 
         await _ipc.SendScriptMessageAsync(LuaTarget, "jiten-reset-keybinds", ct);
 
-        _keybinds = keybinds ?? new();
+        _keybinds = (keybinds ?? [])
+            .Where(kv => reviewsEnabled || !PopupActions.IsReviewKeybind(kv.Key))
+            .ToDictionary();
 
         foreach (var (action, key) in _keybinds)
             await _ipc.SendScriptMessageAsync(LuaTarget, "jiten-set-keybind", action, key, ct);

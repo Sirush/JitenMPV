@@ -84,7 +84,8 @@ public sealed class PluginHost(string pipePath, ILogger logger, IPopupPresenter 
         _colorizer.UpdateDetectors(iPlusOne, freqMarker);
 
         if (_keybindManager is not null)
-            _ = RunSafe(() => _keybindManager.ConfigureKeybindsAsync(newSettings.PopupKeybinds, CancellationToken.None));
+            _ = RunSafe(() => _keybindManager.ConfigureKeybindsAsync(
+                newSettings.PopupKeybinds, newSettings.ReviewsEnabled, CancellationToken.None));
 
         if (_ipcClient is { } ipc)
         {
@@ -300,7 +301,7 @@ public sealed class PluginHost(string pipePath, ILogger logger, IPopupPresenter 
             await ipcClient.SendScriptMessageAsync("jiten_mpv", "jiten-set-mouse-zone",
                 settings.MouseZonePercent.ToString(), ct);
 
-            await keybindManager.ConfigureKeybindsAsync(settings.PopupKeybinds, ct);
+            await keybindManager.ConfigureKeybindsAsync(settings.PopupKeybinds, settings.ReviewsEnabled, ct);
 
             if (settings.PreparseEnabled)
                 _ = RunSafe(() => StartPreParseAsync(ipcClient, preParser, ct));
