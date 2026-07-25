@@ -68,8 +68,10 @@ public static partial class AssParser
     {
         var parts = ts.Split(':', '.');
         if (parts.Length < 4) return TimeSpan.Zero;
-        return new TimeSpan(0, int.Parse(parts[0]), int.Parse(parts[1]), int.Parse(parts[2]),
-            int.Parse(parts[3]) * 10);
+        if (!int.TryParse(parts[0], out var h) || !int.TryParse(parts[1], out var m)
+            || !int.TryParse(parts[2], out var s) || !int.TryParse(parts[3], out var cs))
+            return TimeSpan.Zero;
+        return new TimeSpan(0, h, m, s, cs * 10);
     }
 
     private static string StripAssTags(string text) => AssTagPattern().Replace(text, "");

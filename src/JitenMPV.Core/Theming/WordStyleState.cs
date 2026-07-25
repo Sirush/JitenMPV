@@ -56,10 +56,21 @@ public sealed class WordStyleState
         ScaleY = ScaleY ?? baseStyle.ScaleY
     };
 
-    internal static string RgbToBgr(string hexRgb)
+    internal static string NormalizeHex(string hexRgb)
     {
         var hex = hexRgb.TrimStart('#');
-        if (hex.Length != 6) return hex;
+        return hex.Length switch
+        {
+            3 => $"{hex[0]}{hex[0]}{hex[1]}{hex[1]}{hex[2]}{hex[2]}",
+            8 => hex[..6],
+            6 => hex,
+            _ => "ffffff"
+        };
+    }
+
+    internal static string RgbToBgr(string hexRgb)
+    {
+        var hex = NormalizeHex(hexRgb);
         return string.Concat(hex.AsSpan(4, 2), hex.AsSpan(2, 2), hex.AsSpan(0, 2));
     }
 }

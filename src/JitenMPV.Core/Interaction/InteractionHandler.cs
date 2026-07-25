@@ -21,10 +21,9 @@ public sealed class InteractionHandler : IDisposable
     private readonly WordActionService _wordAction;
     private readonly InlineReviewService _review;
     private readonly SubtitleColorizer _colorizer;
-    private readonly PluginSettings _settings;
+    private volatile PluginSettings _settings;
     private readonly ILogger _logger;
     private readonly OsdState _osd;
-    private readonly bool _isHoverTrigger;
 
     private readonly Stopwatch _moveStopwatch = Stopwatch.StartNew();
     private readonly SemaphoreSlim _eventLock = new(1, 1);
@@ -34,6 +33,7 @@ public sealed class InteractionHandler : IDisposable
     private ParseCacheEntry? _currentEntry;
 
     private CancellationTokenSource? _hoverPopupCts;
+    private CancellationTokenSource? _autoHideCts;
 
     public InteractionHandler(
         MpvIpcClient ipc, HitTestService hitTest,
@@ -53,27 +53,41 @@ public sealed class InteractionHandler : IDisposable
         _settings = settings;
         _osd = osd;
         _logger = logger;
-        _isHoverTrigger = settings.PopupTrigger == PopupTriggerMode.Hover;
 
         _blur.WordUnrevealed += () => _ = ReRenderSubtitleAsync(CancellationToken.None);
         _popup.ActionClicked += action => _ = RunSafe(() => ExecutePopupActionAsync(action, CancellationToken.None));
     }
 
+    public void UpdateSettings(PluginSettings newSettings) => _settings = newSettings;
+
+    public void UpdateLayout(List<WordRect> layout) => _hitTest.UpdateLayout(layout);
+
     public async Task OnSubtitleRenderedAsync(string? text, ParseCacheEntry? entry,
                                     List<WordRect> layout, CancellationToken ct)
     {
-        bool textChanged = text != _currentText;
-        _currentText = text;
-        _currentEntry = entry;
+        // Serialized against the mouse handlers via the same lock so shared state
+        // (_currentEntry, autopause/blur internals, popup lifecycle) is never mutated concurrently.
+        await _eventLock.WaitAsync(ct);
+        try
+        {
+            bool textChanged = text != _currentText;
+            _currentText = text;
+            _currentEntry = entry;
 
-        _blur.Reset();
-        _autopause.Reset();
-        TaskHelper.CancelAndDispose(ref _hoverPopupCts);
+            _blur.Reset();
+            await _autopause.ResetAsync();
+            TaskHelper.CancelAndDispose(ref _hoverPopupCts);
+            TaskHelper.CancelAndDispose(ref _autoHideCts);
 
-        await _popup.HideAsync(ct);
+            await _popup.HideAsync(ct);
 
-        if (textChanged)
-            _hitTest.UpdateLayout(layout);
+            if (textChanged)
+                _hitTest.UpdateLayout(layout);
+        }
+        finally
+        {
+            _eventLock.Release();
+        }
     }
 
     public async Task OnMouseEventAsync(MouseEventArgs e, CancellationToken ct)
@@ -117,12 +131,14 @@ public sealed class InteractionHandler : IDisposable
         if (hit is not null || overPopup)
             await _autopause.OnHoverEnterAsync(_ipc, ct);
 
-        bool blurChanged = _blur.UpdateHover(hit, _currentEntry, _settings);
+        bool blurChanged = _blur.UpdateHover(hit, _currentEntry);
         if (blurChanged && _currentText is not null)
             await ReRenderSubtitleAsync(ct);
 
-        if (hit is not null && _isHoverTrigger)
+        if (hit is not null && _settings.PopupTrigger == PopupTriggerMode.Hover)
         {
+            TaskHelper.CancelAndDispose(ref _autoHideCts);
+
             if (_popup.IsVisible)
             {
                 await _popup.ShowAsync(hit, _currentEntry, ct);
@@ -141,19 +157,36 @@ public sealed class InteractionHandler : IDisposable
             await _autopause.OnHoverLeaveAsync(_ipc, ct);
 
             if (_popup.IsVisible)
-                await _popup.HideAsync(ct);
+            {
+                if (_settings.PopupAutoHide && _settings.PopupAutoHideDelayMs > 0)
+                {
+                    TaskHelper.CancelAndDispose(ref _autoHideCts);
+                    _autoHideCts = new CancellationTokenSource();
+                    var linked = CancellationTokenSource.CreateLinkedTokenSource(_autoHideCts.Token, ct);
+                    _ = HidePopupAfterDelayAsync(linked);
+                }
+                else
+                {
+                    await _popup.HideAsync(ct);
+                }
+            }
+        }
+        else if (overPopup)
+        {
+            TaskHelper.CancelAndDispose(ref _autoHideCts);
         }
     }
 
     private async Task HandleLeaveAsync(CancellationToken ct)
     {
         TaskHelper.CancelAndDispose(ref _hoverPopupCts);
+        TaskHelper.CancelAndDispose(ref _autoHideCts);
 
         if (_popup.IsVisible)
             await _popup.HideAsync(ct);
 
         if (_currentEntry is not null)
-            _blur.UpdateHover(null, _currentEntry, _settings);
+            _blur.UpdateHover(null, _currentEntry);
 
         await _autopause.OnHoverLeaveAsync(_ipc, ct);
 
@@ -173,6 +206,18 @@ public sealed class InteractionHandler : IDisposable
         finally { linkedCts.Dispose(); }
     }
 
+    private async Task HidePopupAfterDelayAsync(CancellationTokenSource linkedCts)
+    {
+        try
+        {
+            await Task.Delay(_settings.PopupAutoHideDelayMs, linkedCts.Token);
+            if (_popup.IsVisible)
+                await _popup.HideAsync(linkedCts.Token);
+        }
+        catch (OperationCanceledException) { }
+        finally { linkedCts.Dispose(); }
+    }
+
     private async Task HandleClickAsync(double mx, double my, CancellationToken ct)
     {
         if (_currentEntry is null || _osd.Height <= 0) return;
@@ -185,7 +230,7 @@ public sealed class InteractionHandler : IDisposable
             mx, my, hit is not null ? $"word {hit.WordId}" : "MISS");
         if (hit is null) return;
 
-        if (!_isHoverTrigger)
+        if (_settings.PopupTrigger != PopupTriggerMode.Hover)
             await _popup.ShowAsync(hit, _currentEntry, ct);
     }
 
@@ -208,7 +253,7 @@ public sealed class InteractionHandler : IDisposable
         await ReRenderSubtitleAsync(ct);
     }
 
-    private async Task ExecutePopupActionAsync(PopupAction action, CancellationToken ct)
+    public async Task ExecutePopupActionAsync(PopupAction action, CancellationToken ct)
     {
         if (_currentEntry is null || _currentText is null) return;
 
@@ -272,6 +317,7 @@ public sealed class InteractionHandler : IDisposable
     public void Dispose()
     {
         TaskHelper.CancelAndDispose(ref _hoverPopupCts);
+        TaskHelper.CancelAndDispose(ref _autoHideCts);
         _eventLock.Dispose();
     }
 }

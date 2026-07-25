@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text;
 using JitenMPV.Core.Theming;
 
@@ -19,27 +20,20 @@ public static class AssTagBuilder
             sb.Append("\\4c&H").Append(style.ShadowColorBgr).Append('&');
 
         if (style.OutlineSize is { } bord)
-            sb.Append("\\bord").Append(bord);
+            AppendNum(sb, "\\bord", bord);
 
-        if (style.ShadowDepth is { } shad and > 0)
-            sb.Append("\\shad").Append(shad);
+        AppendNum(sb, "\\shad", style.ShadowDepth is { } shad and > 0 ? shad : 0);
 
-        if (style.TextOpacity is { } textAlpha and < 255)
-            sb.Append("\\1a&H").Append((255 - textAlpha).ToString("X2")).Append('&');
+        AppendAlpha(sb, "\\1a", style.TextOpacity);
+        AppendAlpha(sb, "\\3a", style.OutlineOpacity);
+        AppendAlpha(sb, "\\4a", style.ShadowOpacity);
 
-        if (style.OutlineOpacity is { } outlineAlpha and < 255)
-            sb.Append("\\3a&H").Append((255 - outlineAlpha).ToString("X2")).Append('&');
+        AppendNum(sb, "\\blur", style.Blur ?? 0);
 
-        if (style.ShadowOpacity is { } shadowAlpha and < 255)
-            sb.Append("\\4a&H").Append((255 - shadowAlpha).ToString("X2")).Append('&');
-
-        if (style.Blur is { } blur and > 0)
-            sb.Append("\\blur").Append(blur);
-
-        if (style.Bold == true) sb.Append("\\b1");
-        if (style.Italic == true) sb.Append("\\i1");
-        if (style.Underline == true) sb.Append("\\u1");
-        if (style.Strikethrough == true) sb.Append("\\s1");
+        sb.Append(style.Bold == true ? "\\b1" : "\\b0");
+        sb.Append(style.Italic == true ? "\\i1" : "\\i0");
+        sb.Append(style.Underline == true ? "\\u1" : "\\u0");
+        sb.Append(style.Strikethrough == true ? "\\s1" : "\\s0");
 
         if (style.ScaleX is { } sx and not 100)
             sb.Append("\\fscx").Append(sx);
@@ -47,6 +41,15 @@ public static class AssTagBuilder
             sb.Append("\\fscy").Append(sy);
 
         sb.Append('}');
+    }
+
+    private static void AppendNum(StringBuilder sb, string tag, double value)
+        => sb.Append(tag).Append(value.ToString(CultureInfo.InvariantCulture));
+
+    private static void AppendAlpha(StringBuilder sb, string tag, int? opacity)
+    {
+        var assAlpha = opacity is { } a ? 255 - Math.Clamp(a, 0, 255) : 0;
+        sb.Append(tag).Append("&H").Append(assAlpha.ToString("X2")).Append('&');
     }
 
     public static void AppendEscapedText(StringBuilder sb, string text, int start, int length)
@@ -57,8 +60,16 @@ public static class AssTagBuilder
             switch (text[i])
             {
                 case '\n': sb.Append("\\N"); break;
+                case '\r': break;
                 case '{': sb.Append("\\{"); break;
                 case '}': sb.Append("\\}"); break;
+                case '\\':
+                    sb.Append('\\');
+                    // libass reads \N, \n and \h as formatting anywhere in the text field; an empty
+                    // override block breaks the sequence so the backslash stays literal.
+                    if (i + 1 < end && text[i + 1] is 'N' or 'n' or 'h')
+                        sb.Append("{}");
+                    break;
                 default: sb.Append(text[i]); break;
             }
         }

@@ -74,7 +74,13 @@ public sealed class ParseCache(int maxEntries = 2000)
     public void UpdateWordState(int wordId, byte readingIndex, KnownState newState)
     {
         var key = (wordId, readingIndex);
-        foreach (var entry in _cache.Values)
-            entry.VocabStates.TryUpdate(key, newState, entry.VocabStates.GetValueOrDefault(key));
+        _cache.ForEachValue(entry =>
+        {
+            // VocabStates only holds words that already had a server-side state, so an untracked
+            // word needs an insert rather than an update; VocabDetails is what proves the word
+            // actually occurs in this entry.
+            if (entry.VocabDetails.ContainsKey(key))
+                entry.VocabStates[key] = newState;
+        });
     }
 }

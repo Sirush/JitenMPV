@@ -14,6 +14,7 @@ public sealed class PopupManager
     public bool IsVisible => _presenter.IsVisible;
     public (int WordId, byte ReadingIndex)? CurrentWord => _currentWord;
     public event Action<PopupAction>? ActionClicked;
+    public event Action<bool>? VisibilityChanged;
 
     public PopupManager(PopupDataBuilder dataBuilder, IPopupPresenter presenter)
     {
@@ -42,24 +43,41 @@ public sealed class PopupManager
         _currentWord = null;
         _mouseOverPopup = false;
         await _presenter.HideAsync(ct);
+        VisibilityChanged?.Invoke(false);
     }
 
     public async Task RefreshAsync(ParseCacheEntry entry, CancellationToken ct)
     {
         if (_currentWord is not { } key || !_presenter.IsVisible) return;
-        await ShowForKeyAsync(key, entry, ct);
+        await UpdateForKeyAsync(key, entry, ct);
     }
 
     private async Task ShowForKeyAsync((int WordId, byte ReadingIndex) key, ParseCacheEntry entry, CancellationToken ct)
     {
-        if (!entry.VocabDetails.TryGetValue(key, out var readerWord)) return;
+        var data = BuildPopupData(key, entry);
+        if (data is null) return;
+        bool wasVisible = _presenter.IsVisible;
+        await _presenter.ShowAsync(data, ct);
+        if (!wasVisible && _presenter.IsVisible)
+            VisibilityChanged?.Invoke(true);
+    }
+
+    private async Task UpdateForKeyAsync((int WordId, byte ReadingIndex) key, ParseCacheEntry entry, CancellationToken ct)
+    {
+        var data = BuildPopupData(key, entry);
+        if (data is null) return;
+        await _presenter.UpdateAsync(data, ct);
+    }
+
+    private PopupData? BuildPopupData((int WordId, byte ReadingIndex) key, ParseCacheEntry entry)
+    {
+        if (!entry.VocabDetails.TryGetValue(key, out var readerWord)) return null;
 
         var token = entry.Tokens.Find(t => t.WordId == key.WordId && t.ReadingIndex == key.ReadingIndex);
-        if (token is null) return;
+        if (token is null) return null;
 
         var cachedState = entry.VocabStates.GetValueOrDefault(key);
-        var data = _dataBuilder.Build(readerWord, token, cachedState);
-        await _presenter.ShowAsync(data, ct);
+        return _dataBuilder.Build(readerWord, token, cachedState);
     }
 
     public void Reset()

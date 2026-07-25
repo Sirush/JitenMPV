@@ -1,32 +1,64 @@
-using System.Collections.Concurrent;
-
 namespace JitenMPV.Core.Cache;
 
 internal sealed class BoundedCache<TKey, TValue>(int maxEntries) where TKey : notnull
 {
-    private readonly ConcurrentDictionary<TKey, TValue> _cache = new();
-    private readonly ConcurrentQueue<TKey> _order = new();
+    private readonly Lock _lock = new();
+    private readonly Dictionary<TKey, LinkedListNode<(TKey Key, TValue Value)>> _cache = [];
+    private readonly LinkedList<(TKey Key, TValue Value)> _order = new();
 
     public TValue? GetOrDefault(TKey key)
-        => _cache.GetValueOrDefault(key);
+        => TryGetValue(key, out var value) ? value : default;
 
     public bool TryGetValue(TKey key, out TValue? value)
-        => _cache.TryGetValue(key, out value);
+    {
+        lock (_lock)
+        {
+            if (!_cache.TryGetValue(key, out var node))
+            {
+                value = default;
+                return false;
+            }
+
+            _order.Remove(node);
+            _order.AddFirst(node);
+            value = node.Value.Value;
+            return true;
+        }
+    }
 
     public bool TryAdd(TKey key, TValue value)
     {
-        if (!_cache.TryAdd(key, value)) return false;
-        _order.Enqueue(key);
-        while (_cache.Count > maxEntries && _order.TryDequeue(out var oldest))
-            _cache.TryRemove(oldest, out _);
-        return true;
+        lock (_lock)
+        {
+            if (_cache.ContainsKey(key)) return false;
+
+            _cache[key] = _order.AddFirst((key, value));
+
+            while (_cache.Count > maxEntries && _order.Last is { } evicted)
+            {
+                _order.RemoveLast();
+                _cache.Remove(evicted.Value.Key);
+            }
+
+            return true;
+        }
+    }
+
+    public void ForEachValue(Action<TValue> action)
+    {
+        lock (_lock)
+        {
+            foreach (var entry in _order)
+                action(entry.Value);
+        }
     }
 
     public void Clear()
     {
-        _cache.Clear();
-        while (_order.TryDequeue(out _)) { }
+        lock (_lock)
+        {
+            _cache.Clear();
+            _order.Clear();
+        }
     }
-
-    public ICollection<TValue> Values => _cache.Values;
 }

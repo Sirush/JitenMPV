@@ -9,14 +9,31 @@ public sealed class BlurHoverManager
 {
     private readonly Lock _lock = new();
     private readonly HashSet<(int WordId, byte ReadingIndex)> _revealedWords = [];
-    private readonly HashSet<KnownState> _blurStates;
+    private HashSet<KnownState> _blurStates;
+    private volatile bool _blurEnabled;
+    private volatile bool _blurRevealOnHover;
+    private volatile int _blurRevealDelayMs;
     private (int WordId, byte ReadingIndex)? _currentHover;
-    private CancellationTokenSource? _unhoverCts;
+
+    /// Cancelled on Reset so pending un-reveals from the previous subtitle cannot remove a word
+    /// that the current subtitle has since revealed.
+    private CancellationTokenSource _subtitleCts = new();
 
     public event Action? WordUnrevealed;
 
     public BlurHoverManager(PluginSettings settings)
     {
+        _blurEnabled = settings.BlurEnabled;
+        _blurRevealOnHover = settings.BlurRevealOnHover;
+        _blurRevealDelayMs = settings.BlurRevealDelayMs;
+        _blurStates = [..settings.BlurStates.Select(s => (KnownState)s)];
+    }
+
+    public void UpdateBlurStates(PluginSettings settings)
+    {
+        _blurEnabled = settings.BlurEnabled;
+        _blurRevealOnHover = settings.BlurRevealOnHover;
+        _blurRevealDelayMs = settings.BlurRevealDelayMs;
         _blurStates = [..settings.BlurStates.Select(s => (KnownState)s)];
     }
 
@@ -25,46 +42,56 @@ public sealed class BlurHoverManager
         lock (_lock) return _revealedWords.Count == 0 ? null : [.._revealedWords];
     }
 
-    public bool UpdateHover(WordRect? hoveredWord, ParseCacheEntry entry, PluginSettings settings)
+    public bool UpdateHover(WordRect? hoveredWord, ParseCacheEntry entry)
     {
-        if (!settings.BlurEnabled || !settings.BlurRevealOnHover)
+        if (!_blurEnabled || !_blurRevealOnHover)
             return false;
 
-        if (hoveredWord is null)
+        (int WordId, byte ReadingIndex)? next = null;
+        if (hoveredWord is not null)
         {
-            if (_currentHover is null) return false;
-
-            var prev = _currentHover.Value;
-            _currentHover = null;
-
-            TaskHelper.CancelAndDispose(ref _unhoverCts);
-            _unhoverCts = new CancellationTokenSource();
-            var cts = _unhoverCts;
-
-            _ = Task.Delay(settings.BlurRevealDelayMs, cts.Token).ContinueWith(t =>
-            {
-                if (t.IsCanceled) return;
-                bool removed;
-                lock (_lock) { removed = _revealedWords.Remove(prev); }
-                if (removed)
-                    WordUnrevealed?.Invoke();
-            }, TaskScheduler.Default);
-
-            return false;
+            var key = (hoveredWord.WordId, hoveredWord.ReadingIndex);
+            if (entry.VocabStates.TryGetValue(key, out var state) && _blurStates.Contains(state))
+                next = key;
         }
 
-        var key = (hoveredWord.WordId, hoveredWord.ReadingIndex);
+        (int WordId, byte ReadingIndex)? previous;
+        bool revealed;
+        CancellationToken token;
 
-        if (!entry.VocabStates.TryGetValue(key, out var state) || !_blurStates.Contains(state))
-            return false;
+        lock (_lock)
+        {
+            if (_currentHover == next) return false;
 
-        if (_currentHover == key)
-            return false;
+            previous = _currentHover;
+            _currentHover = next;
+            token = _subtitleCts.Token;
+            revealed = next is not null && _revealedWords.Add(next.Value);
+        }
 
-        _unhoverCts?.Cancel();
-        _currentHover = key;
+        // Every transition away from a word schedules its re-blur, including word-to-word moves.
+        if (previous is not null)
+            ScheduleUnreveal(previous.Value, token);
 
-        lock (_lock) { return _revealedWords.Add(key); }
+        return revealed;
+    }
+
+    private void ScheduleUnreveal((int WordId, byte ReadingIndex) word, CancellationToken token)
+    {
+        _ = Task.Delay(_blurRevealDelayMs, token).ContinueWith(t =>
+        {
+            if (t.IsCanceled) return;
+
+            bool removed;
+            lock (_lock)
+            {
+                if (_currentHover == word) return;
+                removed = _revealedWords.Remove(word);
+            }
+
+            if (removed)
+                WordUnrevealed?.Invoke();
+        }, TaskScheduler.Default);
     }
 
     public bool HasRevealed
@@ -79,8 +106,16 @@ public sealed class BlurHoverManager
 
     public void Reset()
     {
-        TaskHelper.CancelAndDispose(ref _unhoverCts);
-        lock (_lock) { _revealedWords.Clear(); }
-        _currentHover = null;
+        CancellationTokenSource stale;
+        lock (_lock)
+        {
+            _revealedWords.Clear();
+            _currentHover = null;
+            stale = _subtitleCts;
+            _subtitleCts = new CancellationTokenSource();
+        }
+
+        stale.Cancel();
+        stale.Dispose();
     }
 }

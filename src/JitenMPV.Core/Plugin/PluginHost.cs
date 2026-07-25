@@ -1,5 +1,6 @@
 using System.Text.Json;
 using JitenMPV.Core.Api;
+using JitenMPV.Core.Api.Models;
 using JitenMPV.Core.Cache;
 using JitenMPV.Core.Config;
 using JitenMPV.Core.Interaction;
@@ -13,58 +14,198 @@ namespace JitenMPV.Core.Plugin;
 public sealed class PluginHost(string pipePath, ILogger logger, IPopupPresenter popupPresenter)
 {
     internal const int SubtitleOverlayId = 1;
+    internal const string OpenSettingsMessage = "jiten-open-settings";
 
     private CancellationTokenSource? _currentSubtitleCts;
+    private volatile PluginSettings? _settings;
+    private volatile StyleResolver? _styleResolver;
+    private volatile OverlayRenderer? _renderer;
+    private volatile SubtitleColorizer? _colorizer;
+    private volatile PopupDataBuilder? _popupDataBuilder;
+    private volatile InteractionHandler? _interactionHandler;
+    private volatile AutopauseService? _autopause;
+    private volatile BlurHoverManager? _blurManager;
+    private volatile StatusOverlay? _statusOverlay;
+    private volatile SubtitleMeasurer? _measurer;
+    private volatile JitenApiClient? _apiClient;
+    private volatile MpvIpcClient? _ipcClient;
+    private volatile KeybindManager? _keybindManager;
+    private volatile bool _wasPausedBeforeSettings;
+    private volatile string? _currentSubtitleText;
 
-    public async Task RunAsync(CancellationToken ct)
+    public event Action? OpenSettingsRequested;
+
+    public void PausePlayback()
     {
-        logger.LogInformation("JitenMPV starting, pipe: {Path}", pipePath);
-
-        var settings = await SettingsManager.LoadAsync();
-
-        if (string.IsNullOrEmpty(settings.ApiKey))
+        if (_ipcClient is null) return;
+        _ = TaskHelper.RunSafe(async () =>
         {
-            Console.Error.WriteLine("ERROR: No API key configured.");
-            Console.Error.WriteLine($"Set api_key in: {Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "jiten-mpv", "config.json")}");
-            await SettingsManager.SaveAsync(settings);
-            return;
-        }
+            var paused = await _ipcClient.GetPropertyAsync<bool>("pause", CancellationToken.None);
+            _wasPausedBeforeSettings = paused;
+            if (!paused)
+                await _ipcClient.SetPropertyAsync("pause", true, CancellationToken.None);
+        }, logger, "Pause playback");
+    }
 
-        var http = new HttpClient { BaseAddress = new Uri(settings.ApiBaseUrl) };
-        var apiClient = new JitenApiClient(http, settings.ApiKey, logger);
-        var parseCache = new ParseCache();
-
-        if (!ThemePresets.All.TryGetValue(settings.Theme, out var theme))
+    public void ResumePlayback()
+    {
+        if (_ipcClient is null || _wasPausedBeforeSettings) return;
+        _ = TaskHelper.RunSafe(async () =>
         {
-            logger.LogWarning("Unknown theme '{Theme}', falling back to Default", settings.Theme);
-            theme = ThemePresets.Default;
-        }
-        var styleResolver = new StyleResolver(
-            theme, ThemePresets.Unparsed,
-            settings.IPlusOneEnabled ? ThemePresets.IPlusOne : null,
-            settings.FrequencyMarkingEnabled ? ThemePresets.Frequency : null);
+            await _ipcClient.SetPropertyAsync("pause", false, CancellationToken.None);
+        }, logger, "Resume playback");
+    }
 
-        var osd = new OsdState();
-        var renderer = new OverlayRenderer(settings, styleResolver, osd);
+    public void ReloadSettings(PluginSettings newSettings)
+    {
+        if (_styleResolver is null || _renderer is null || _colorizer is null) return;
+
+        _settings = newSettings;
+
+        _apiClient?.UpdateConnection(newSettings.ApiKey, newSettings.ApiBaseUrl, newSettings.ApiTimeoutSeconds);
+
+        var theme = ResolveTheme(newSettings.Theme);
+        _styleResolver.UpdateTheme(
+            theme,
+            newSettings.IPlusOneEnabled ? ThemePresets.IPlusOne : null,
+            newSettings.FrequencyMarkingEnabled ? ThemePresets.Frequency : null,
+            StyleResolver.BuildBlurStates(newSettings),
+            newSettings.BlurStrength);
+
+        _renderer.UpdateSettings(newSettings);
+        _popupDataBuilder?.UpdateSettings(newSettings);
+        _interactionHandler?.UpdateSettings(newSettings);
+        _autopause?.UpdateSettings(newSettings);
+        _blurManager?.UpdateBlurStates(newSettings);
+        _statusOverlay?.UpdateSettings(newSettings);
+        _measurer?.UpdateSettings(newSettings);
+
+        var (iPlusOne, freqMarker) = BuildDetectors(newSettings);
+        _colorizer.UpdateDetectors(iPlusOne, freqMarker);
+
+        if (_keybindManager is not null)
+            _ = RunSafe(() => _keybindManager.ConfigureKeybindsAsync(newSettings.PopupKeybinds, CancellationToken.None));
+
+        if (_ipcClient is { } ipc)
+        {
+            _ = RunSafe(() => ipc.SendScriptMessageAsync("jiten_mpv", "jiten-set-mouse-zone",
+                newSettings.MouseZonePercent.ToString(), CancellationToken.None));
+
+            var text = _currentSubtitleText;
+            if (!string.IsNullOrWhiteSpace(text))
+            {
+                var colorizer = _colorizer;
+                var measurer = _measurer;
+                var interaction = _interactionHandler;
+                _ = TaskHelper.RunSafe(async () =>
+                {
+                    var (ass, entry) = await colorizer.ColorizeAsync(text, CancellationToken.None);
+
+                    // A subtitle change during the round trip means this overlay and layout are
+                    // stale; writing them would clobber the newer line's rendering and hit-test rects.
+                    if (_currentSubtitleText != text) return;
+                    await ipc.ShowOverlayAsync(SubtitleOverlayId, ass, CancellationToken.None);
+
+                    if (entry is not null && measurer is not null && interaction is not null)
+                    {
+                        var layout = await measurer.MeasureAsync(text, entry, ipc, CancellationToken.None);
+                        if (_currentSubtitleText != text) return;
+                        interaction.UpdateLayout(layout);
+                    }
+                }, logger, "Re-render subtitle after settings change");
+            }
+        }
+    }
+
+    private IReadOnlyDictionary<KnownState, WordStyleState> ResolveTheme(string themeName)
+    {
+        if (ThemePresets.All.TryGetValue(themeName, out var theme))
+            return theme;
+
+        if (themeName == "Custom" && _settings?.CustomThemeColors is { } custom)
+            return BuildCustomTheme(custom);
+
+        logger.LogWarning("Unknown theme '{Theme}', falling back to Default", themeName);
+        return ThemePresets.Default;
+    }
+
+    private static IReadOnlyDictionary<KnownState, WordStyleState> BuildCustomTheme(
+        Dictionary<string, CustomStateStyle> custom)
+    {
+        var theme = new Dictionary<KnownState, WordStyleState>();
+        foreach (var state in Enum.GetValues<KnownState>())
+        {
+            if (custom.TryGetValue(state.ToString(), out var style))
+                theme[state] = style.ToWordStyleState();
+            else if (ThemePresets.Default.TryGetValue(state, out var fallback))
+                theme[state] = fallback;
+        }
+        return theme;
+    }
+
+    private static (IPlusOneDetector?, FrequencyMarker?) BuildDetectors(PluginSettings settings)
+    {
         var iPlusOne = settings.IPlusOneEnabled
             ? new IPlusOneDetector(settings.IPlusOneMinTokens, settings.IPlusOneMaxFrequencyRank)
             : null;
         var freqMarker = settings.FrequencyMarkingEnabled
             ? new FrequencyMarker(settings.FrequencyTopN, settings.FrequencyMarkAllStates)
             : null;
+        return (iPlusOne, freqMarker);
+    }
 
+    public async Task RunAsync(PluginSettings? preloaded, CancellationToken ct)
+    {
+        logger.LogInformation("JitenMPV starting, pipe: {Path}", pipePath);
+
+        var settings = preloaded ?? await SettingsManager.LoadAsync(ct);
+        _settings = settings;
+
+        if (string.IsNullOrEmpty(settings.ApiKey))
+        {
+            Console.Error.WriteLine("ERROR: No API key configured.");
+            Console.Error.WriteLine($"Set api_key in: {Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "jiten-mpv", "config.json")}");
+            await SettingsManager.SaveAsync(settings, ct);
+            return;
+        }
+
+        var apiClient = new JitenApiClient(
+            settings.ApiKey, settings.ApiBaseUrl, settings.ApiTimeoutSeconds, logger);
+        _apiClient = apiClient;
+        var parseCache = new ParseCache(settings.CacheSize);
+
+        var theme = ResolveTheme(settings.Theme);
+        var styleResolver = new StyleResolver(
+            theme, ThemePresets.Unparsed,
+            settings.IPlusOneEnabled ? ThemePresets.IPlusOne : null,
+            settings.FrequencyMarkingEnabled ? ThemePresets.Frequency : null,
+            StyleResolver.BuildBlurStates(settings),
+            settings.BlurStrength);
+        _styleResolver = styleResolver;
+
+        var osd = new OsdState();
+        var renderer = new OverlayRenderer(settings, styleResolver, osd);
+        _renderer = renderer;
+
+        var (iPlusOne, freqMarker) = BuildDetectors(settings);
         var colorizer = new SubtitleColorizer(apiClient, parseCache, renderer, iPlusOne, freqMarker, logger);
-        var preParser = new PreParseService(apiClient, parseCache, logger);
+        _colorizer = colorizer;
+        var preParser = new PreParseService(apiClient, parseCache, logger, settings.PreparseBatchSize);
         var measurer = new SubtitleMeasurer(settings, osd);
+        _measurer = measurer;
 
         var hitTest = new HitTestService();
         var blurManager = new BlurHoverManager(settings);
+        _blurManager = blurManager;
         var statusOverlay = new StatusOverlay(settings);
+        _statusOverlay = statusOverlay;
         var wordAction = new WordActionService(apiClient, parseCache, statusOverlay, logger);
         var reviewService = new InlineReviewService(apiClient, parseCache, statusOverlay, logger);
-        var autopause = new AutopauseService(settings);
+        var autopause = new AutopauseService(settings, logger);
+        _autopause = autopause;
 
         await using var ipcClient = new MpvIpcClient(pipePath, logger);
+        _ipcClient = ipcClient;
 
         try
         {
@@ -72,11 +213,27 @@ public sealed class PluginHost(string pipePath, ILogger logger, IPopupPresenter 
             logger.LogInformation("Connected to mpv");
 
             var dataBuilder = new PopupDataBuilder(settings);
+            _popupDataBuilder = dataBuilder;
             var popupManager = new PopupManager(dataBuilder, popupPresenter);
 
             using var interaction = new InteractionHandler(
                 ipcClient, hitTest, blurManager, popupManager, autopause,
                 wordAction, reviewService, colorizer, settings, osd, logger);
+            _interactionHandler = interaction;
+
+            var keybindManager = new KeybindManager(ipcClient, logger);
+            _keybindManager = keybindManager;
+
+            popupManager.VisibilityChanged += visible =>
+            {
+                _ = RunSafe(async () =>
+                {
+                    if (visible)
+                        await keybindManager.EnableKeybindsAsync(ct);
+                    else
+                        await keybindManager.DisableKeybindsAsync(ct);
+                });
+            };
 
             ipcClient.SubtitleTextChanged += text =>
             {
@@ -106,6 +263,22 @@ public sealed class PluginHost(string pipePath, ILogger logger, IPopupPresenter 
                 if (changed) renderer.RebuildPreamble();
             };
 
+            ipcClient.ScriptMessageReceived += (name, args) =>
+            {
+                if (name == OpenSettingsMessage)
+                {
+                    logger.LogInformation("Received {Message}", OpenSettingsMessage);
+                    OpenSettingsRequested?.Invoke();
+                }
+                else if (name == "jiten-keybind-action" && args.Length >= 1)
+                {
+                    if (Enum.TryParse<PopupAction>(args[0], out var action))
+                        _ = RunSafe(() => interaction.ExecutePopupActionAsync(action, ct));
+                    else
+                        logger.LogWarning("Unknown keybind action: {Action}", args[0]);
+                }
+            };
+
             var readLoop = ipcClient.RunAsync(ct);
 
             await ipcClient.SetPropertyAsync("sub-visibility", "no", ct);
@@ -118,15 +291,35 @@ public sealed class PluginHost(string pipePath, ILogger logger, IPopupPresenter 
             osd.Update(await widthTask, await heightTask);
             renderer.RebuildPreamble();
 
-            _ = RunSafe(() => StartPreParseAsync(ipcClient, preParser, ct));
+            var clientName = await ipcClient.GetClientNameAsync(ct);
+            logger.LogInformation("IPC client name: {Name}", clientName);
+            if (clientName is not null)
+                await ipcClient.KeybindAsync("Ctrl+j",
+                    $"script-message-to {clientName} {OpenSettingsMessage}", ct);
+
+            await ipcClient.SendScriptMessageAsync("jiten_mpv", "jiten-set-mouse-zone",
+                settings.MouseZonePercent.ToString(), ct);
+
+            await keybindManager.ConfigureKeybindsAsync(settings.PopupKeybinds, ct);
+
+            if (settings.PreparseEnabled)
+                _ = RunSafe(() => StartPreParseAsync(ipcClient, preParser, ct));
 
             logger.LogInformation("JitenMPV plugin running.");
             await readLoop;
+            logger.LogWarning("Read loop exited");
         }
-        catch (OperationCanceledException) { }
+        catch (OperationCanceledException)
+        {
+            logger.LogWarning("RunAsync cancelled");
+        }
         catch (IOException ex)
         {
             logger.LogError(ex, "IPC connection lost");
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Unexpected error in RunAsync");
         }
         finally
         {
@@ -141,7 +334,6 @@ public sealed class PluginHost(string pipePath, ILogger logger, IPopupPresenter 
             catch { }
 
             statusOverlay.Dispose();
-            http.Dispose();
         }
     }
 
@@ -171,6 +363,8 @@ public sealed class PluginHost(string pipePath, ILogger logger, IPopupPresenter 
     {
         try
         {
+            _currentSubtitleText = text;
+
             if (string.IsNullOrWhiteSpace(text))
             {
                 await interaction.OnSubtitleRenderedAsync(null, null, [], ct);
@@ -179,11 +373,14 @@ public sealed class PluginHost(string pipePath, ILogger logger, IPopupPresenter 
             }
 
             var (ass, entry) = await colorizer.ColorizeAsync(text, ct);
-            await ipcClient.ShowOverlayAsync(SubtitleOverlayId, ass, ct);
 
-            List<WordRect> layout = [];
-            if (entry is not null)
-                layout = await measurer.MeasureAsync(text, entry, ipcClient, ct);
+            var showTask = ipcClient.ShowOverlayAsync(SubtitleOverlayId, ass, ct);
+            var measureTask = entry is not null
+                ? measurer.MeasureAsync(text, entry, ipcClient, ct)
+                : Task.FromResult<List<WordRect>>([]);
+
+            await Task.WhenAll(showTask, measureTask);
+            var layout = measureTask.Result;
 
             await interaction.OnSubtitleRenderedAsync(text, entry, layout, ct);
         }

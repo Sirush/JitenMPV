@@ -1,18 +1,51 @@
 using System.IO.Pipes;
+using System.Net.Sockets;
+using System.Runtime.InteropServices;
 using Microsoft.Extensions.Logging;
 
 namespace JitenMPV.Core.Mpv;
 
 public sealed class MpvConnection(ILogger logger) : IAsyncDisposable
 {
-    private NamedPipeClientStream? _pipe;
+    private Stream? _stream;
     private StreamReader? _reader;
     private StreamWriter? _writer;
     private readonly SemaphoreSlim _writeLock = new(1, 1);
+    private bool _connected;
 
-    public bool IsConnected => _pipe?.IsConnected == true;
+    public bool IsConnected => _connected;
 
     public async Task ConnectAsync(string pipePath, CancellationToken ct)
+    {
+        var delay = 100;
+        for (var attempt = 1; attempt <= 30; attempt++)
+        {
+            try
+            {
+                _stream = RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
+                    ? await ConnectNamedPipeAsync(pipePath, ct)
+                    : await ConnectUnixSocketAsync(pipePath, ct);
+                _connected = true;
+                logger.LogInformation("Connected to mpv pipe: {Path}", pipePath);
+                break;
+            }
+            catch (Exception ex) when (ex is TimeoutException or SocketException)
+            {
+                if (attempt >= 30) break;
+                logger.LogDebug("Connection attempt {Attempt} failed, retrying in {Delay}ms", attempt, delay);
+                await Task.Delay(delay, ct);
+                delay = Math.Min(delay * 2, 5000);
+            }
+        }
+
+        if (!_connected)
+            throw new IOException($"Failed to connect to mpv pipe after 30 attempts: {pipePath}");
+
+        _reader = new StreamReader(_stream!, leaveOpen: true);
+        _writer = new StreamWriter(_stream!, leaveOpen: true) { AutoFlush = true };
+    }
+
+    private static async Task<Stream> ConnectNamedPipeAsync(string pipePath, CancellationToken ct)
     {
         var pipeName = pipePath;
         var serverName = ".";
@@ -29,34 +62,31 @@ public sealed class MpvConnection(ILogger logger) : IAsyncDisposable
             }
         }
 
-        _pipe = new NamedPipeClientStream(serverName, pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
+        var pipe = new NamedPipeClientStream(serverName, pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
+        await pipe.ConnectAsync(1000, ct);
+        return pipe;
+    }
 
-        var delay = 100;
-        for (var attempt = 1; attempt <= 30; attempt++)
+    private static async Task<Stream> ConnectUnixSocketAsync(string socketPath, CancellationToken ct)
+    {
+        var socket = new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified);
+        try
         {
-            try
-            {
-                await _pipe.ConnectAsync(1000, ct);
-                logger.LogInformation("Connected to mpv pipe: {Path}", pipePath);
-                break;
-            }
-            catch (TimeoutException) when (attempt < 30)
-            {
-                logger.LogDebug("Connection attempt {Attempt} timed out, retrying in {Delay}ms", attempt, delay);
-                await Task.Delay(delay, ct);
-                delay = Math.Min(delay * 2, 5000);
-            }
-            catch (TimeoutException)
-            {
-                throw new IOException($"Failed to connect to mpv pipe after {attempt} attempts: {pipePath}");
-            }
+            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            timeoutCts.CancelAfter(1000);
+            await socket.ConnectAsync(new UnixDomainSocketEndPoint(socketPath), timeoutCts.Token);
+            return new NetworkStream(socket, ownsSocket: true);
         }
-
-        if (!_pipe.IsConnected)
-            throw new IOException($"Failed to connect to mpv pipe: {pipePath}");
-
-        _reader = new StreamReader(_pipe, leaveOpen: true);
-        _writer = new StreamWriter(_pipe, leaveOpen: true) { AutoFlush = true };
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            socket.Dispose();
+            throw new TimeoutException($"Connection to {socketPath} timed out");
+        }
+        catch
+        {
+            socket.Dispose();
+            throw;
+        }
     }
 
     public async Task SendLineAsync(string line, CancellationToken ct)
@@ -106,8 +136,9 @@ public sealed class MpvConnection(ILogger logger) : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
+        _connected = false;
         try { if (_writer is not null) await _writer.DisposeAsync(); } catch { }
         try { if (_reader is not null) _reader.Dispose(); } catch { }
-        try { if (_pipe is not null) await _pipe.DisposeAsync(); } catch { }
+        try { if (_stream is not null) await _stream.DisposeAsync(); } catch { }
     }
 }

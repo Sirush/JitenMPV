@@ -1,0 +1,670 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:JitenMPV.App.ViewModels"
+        xmlns:converters="using:JitenMPV.App.Converters"
+        x:Class="JitenMPV.App.Views.SettingsWindow"
+        x:DataType="vm:SettingsViewModel"
+        Title="JitenMPV Settings"
+        Width="750" Height="580"
+        MinWidth="650" MinHeight="500"
+        WindowStartupLocation="CenterScreen"
+        Background="#000000"
+        RequestedThemeVariant="Dark">
+
+  <Window.Resources>
+    <converters:ParseEqualsConverter x:Key="ParseEquals" />
+    <converters:HexColorConverter x:Key="HexToColor" />
+    <converters:StringToBrushConverter x:Key="StringToBrush" />
+  </Window.Resources>
+
+  <Window.Styles>
+    <Style Selector="ListBoxItem">
+      <Setter Property="Padding" Value="16,10" />
+      <Setter Property="Foreground" Value="#a1a1aa" />
+      <Setter Property="FontSize" Value="14" />
+    </Style>
+    <Style Selector="ListBoxItem:selected">
+      <Setter Property="Foreground" Value="#ffffff" />
+    </Style>
+    <Style Selector="ListBoxItem:selected /template/ ContentPresenter">
+      <Setter Property="Foreground" Value="#ffffff" />
+    </Style>
+
+    <Style Selector="TextBlock.section-header">
+      <Setter Property="FontSize" Value="11" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Foreground" Value="#71717a" />
+      <Setter Property="Margin" Value="0,4,0,0" />
+    </Style>
+
+    <Style Selector="Border.divider">
+      <Setter Property="Height" Value="1" />
+      <Setter Property="Background" Value="#27272a" />
+      <Setter Property="Margin" Value="0,4,0,4" />
+    </Style>
+
+    <Style Selector="Button.accent">
+      <Setter Property="Background" Value="#c084fc" />
+      <Setter Property="Foreground" Value="#18181b" />
+      <Setter Property="FontWeight" Value="Medium" />
+    </Style>
+    <Style Selector="Button.accent:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="#d8b4fe" />
+      <Setter Property="Foreground" Value="#18181b" />
+    </Style>
+    <Style Selector="Button.accent:pressed /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="#a855f7" />
+      <Setter Property="Foreground" Value="#ffffff" />
+    </Style>
+
+    <Style Selector="Button.secondary">
+      <Setter Property="Background" Value="#27272a" />
+      <Setter Property="Foreground" Value="#d4d4d8" />
+    </Style>
+    <Style Selector="Button.secondary:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="#3f3f46" />
+    </Style>
+  </Window.Styles>
+
+  <Grid RowDefinitions="*,Auto">
+
+    <Grid ColumnDefinitions="180,*">
+
+      <Border Grid.Column="0" Background="#09090b" BorderBrush="#27272a" BorderThickness="0,0,1,0">
+        <ListBox SelectedIndex="{Binding SelectedTabIndex}"
+                 Background="Transparent"
+                 Padding="0,8">
+          <ListBoxItem Content="General" />
+          <ListBoxItem Content="Appearance" />
+          <ListBoxItem Content="Features" />
+          <ListBoxItem Content="Popup" />
+          <ListBoxItem Content="Keybinds" />
+          <ListBoxItem Content="Advanced" />
+        </ListBox>
+      </Border>
+
+      <ScrollViewer Grid.Column="1" Padding="24,16" x:Name="ContentScroll">
+        <Panel>
+
+          <!-- ═══════ GENERAL TAB ═══════ -->
+          <StackPanel IsVisible="{Binding SelectedTabIndex, Converter={StaticResource ParseEquals}, ConverterParameter=0}"
+                      Spacing="16">
+            <TextBlock Text="General" FontSize="20" FontWeight="Bold" Foreground="#ffffff" />
+
+            <StackPanel Spacing="4">
+              <TextBlock Text="API Key" Foreground="#a1a1aa" FontSize="13" FontWeight="Medium" />
+              <Grid ColumnDefinitions="*,Auto">
+                <TextBox Text="{Binding ApiKey}"
+                         RevealPassword="{Binding IsApiKeyVisible}"
+                         PasswordChar="*"
+                         Watermark="Enter your jiten.moe API key" />
+                <Button Grid.Column="1" Content="Show" Margin="4,0,0,0"
+                        Classes="secondary"
+                        Command="{Binding ToggleApiKeyVisibilityCommand}" />
+              </Grid>
+              <TextBlock Text="Get your API key from jiten.moe/settings"
+                         FontSize="11" Foreground="#71717a" />
+            </StackPanel>
+
+            <Border Classes="divider" />
+
+            <Expander Header="Advanced API Settings">
+              <StackPanel Spacing="8" Margin="0,8,0,0">
+                <StackPanel Spacing="4">
+                  <TextBlock Text="API Base URL" Foreground="#a1a1aa" FontSize="13" FontWeight="Medium" />
+                  <TextBox Text="{Binding ApiBaseUrl}" />
+                </StackPanel>
+                <StackPanel Spacing="4">
+                  <TextBlock Text="API Timeout (seconds)" Foreground="#a1a1aa" FontSize="13" FontWeight="Medium" />
+                  <NumericUpDown Value="{Binding ApiTimeoutSeconds}"
+                                 Minimum="5" Maximum="300" Increment="5" />
+                </StackPanel>
+              </StackPanel>
+            </Expander>
+          </StackPanel>
+
+          <!-- ═══════ APPEARANCE TAB ═══════ -->
+          <StackPanel IsVisible="{Binding SelectedTabIndex, Converter={StaticResource ParseEquals}, ConverterParameter=1}"
+                      Spacing="16">
+            <TextBlock Text="Appearance" FontSize="20" FontWeight="Bold" Foreground="#ffffff" />
+
+            <StackPanel Spacing="4">
+              <TextBlock Text="Theme" Foreground="#a1a1aa" FontSize="13" FontWeight="Medium" />
+              <ComboBox ItemsSource="{Binding AvailableThemes}"
+                        SelectedItem="{Binding SelectedTheme}" MinWidth="200" />
+            </StackPanel>
+
+            <Expander Header="Import from JitenReader" Padding="0">
+              <StackPanel Spacing="8" Margin="0,8,0,0">
+                <TextBlock Text="Paste a JitenReader theme share code (jtr:1...)"
+                           FontSize="12" Foreground="#71717a" />
+                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                  <TextBox Text="{Binding ImportCode}" PlaceholderText="jtr:1..." />
+                  <Button Grid.Column="1" Content="Import" Classes="accent"
+                          Command="{Binding ImportThemeCodeCommand}" />
+                </Grid>
+                <TextBlock Text="{Binding ImportStatus}" FontSize="12" Foreground="#a1a1aa"
+                           IsVisible="{Binding ImportStatus, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+              </StackPanel>
+            </Expander>
+
+            <!-- Custom Theme Editor -->
+            <StackPanel IsVisible="{Binding IsCustomTheme}" Spacing="8">
+              <TextBlock Text="WORD STATE STYLES" Classes="section-header" />
+              <TextBlock Text="Customize the appearance for each word knowledge state"
+                         FontSize="12" Foreground="#71717a" />
+
+              <ItemsControl ItemsSource="{Binding CustomStateStyles}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="vm:StateStyleViewModel">
+                    <Expander Margin="0,2">
+                      <Expander.Header>
+                        <StackPanel Orientation="Horizontal" Spacing="10">
+                          <Border Width="14" Height="14" CornerRadius="3"
+                                  Background="{Binding SwatchColor, Converter={StaticResource StringToBrush}}" />
+                          <TextBlock Text="{Binding DisplayName}" FontSize="14" FontWeight="Medium"
+                                     Foreground="#d4d4d8" VerticalAlignment="Center" />
+                        </StackPanel>
+                      </Expander.Header>
+
+                      <Border Background="#18181b" BorderBrush="#3f3f46" BorderThickness="1"
+                              CornerRadius="8" Padding="16" Margin="0,4,0,0">
+                        <StackPanel Spacing="12">
+
+                          <!-- Colors -->
+                          <StackPanel Spacing="8">
+                            <TextBlock Text="COLORS" Classes="section-header" />
+                            <Grid ColumnDefinitions="90,*" RowDefinitions="Auto,Auto,Auto" RowSpacing="8">
+                              <TextBlock Text="Text" VerticalAlignment="Center" Foreground="#a1a1aa" />
+                              <ColorPicker Grid.Column="1" IsAlphaVisible="False"
+                                           Color="{Binding TextColor, Converter={StaticResource HexToColor}}"
+                                           HorizontalAlignment="Left" />
+
+                              <TextBlock Grid.Row="1" Text="Outline" VerticalAlignment="Center" Foreground="#a1a1aa" />
+                              <ColorPicker Grid.Row="1" Grid.Column="1" IsAlphaVisible="False"
+                                           Color="{Binding OutlineColor, Converter={StaticResource HexToColor}}"
+                                           HorizontalAlignment="Left" />
+
+                              <TextBlock Grid.Row="2" Text="Shadow" VerticalAlignment="Center" Foreground="#a1a1aa" />
+                              <StackPanel Grid.Row="2" Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                                <CheckBox IsChecked="{Binding HasShadow}" VerticalAlignment="Center" />
+                                <ColorPicker Color="{Binding ShadowColor, Converter={StaticResource HexToColor}}"
+                                             IsAlphaVisible="False"
+                                             IsEnabled="{Binding HasShadow}" HorizontalAlignment="Left" />
+                              </StackPanel>
+                            </Grid>
+                          </StackPanel>
+
+                          <!-- Sizes -->
+                          <StackPanel Spacing="8">
+                            <TextBlock Text="SIZES" Classes="section-header" />
+                            <Grid ColumnDefinitions="90,*" RowDefinitions="Auto,Auto" RowSpacing="8">
+                              <TextBlock Text="Outline" VerticalAlignment="Center" Foreground="#a1a1aa" />
+                              <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                                <Slider Value="{Binding OutlineSize}" Minimum="0" Maximum="10" Width="200"
+                                        TickFrequency="0.5" IsSnapToTickEnabled="True" />
+                                <TextBlock Text="{Binding OutlineSize, StringFormat='{}{0:F1}'}"
+                                           VerticalAlignment="Center" Width="30" Foreground="#ffffff" />
+                              </StackPanel>
+
+                              <TextBlock Grid.Row="1" Text="Shadow" VerticalAlignment="Center" Foreground="#a1a1aa" />
+                              <StackPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                                <Slider Value="{Binding ShadowDepth}" Minimum="0" Maximum="10" Width="200"
+                                        IsEnabled="{Binding HasShadow}"
+                                        TickFrequency="0.5" IsSnapToTickEnabled="True" />
+                                <TextBlock Text="{Binding ShadowDepth, StringFormat='{}{0:F1}'}"
+                                           VerticalAlignment="Center" Width="30" Foreground="#ffffff" />
+                              </StackPanel>
+                            </Grid>
+                          </StackPanel>
+
+                          <!-- Opacity -->
+                          <StackPanel Spacing="8">
+                            <TextBlock Text="OPACITY" Classes="section-header" />
+                            <Grid ColumnDefinitions="90,*">
+                              <TextBlock Text="Text" VerticalAlignment="Center" Foreground="#a1a1aa" />
+                              <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                                <Slider Value="{Binding TextOpacityPercent}" Minimum="0" Maximum="100" Width="200" />
+                                <TextBlock Text="{Binding TextOpacityPercent, StringFormat='{}{0}%'}"
+                                           VerticalAlignment="Center" Width="40" Foreground="#ffffff" />
+                              </StackPanel>
+                            </Grid>
+                          </StackPanel>
+
+                          <!-- Text Effects -->
+                          <StackPanel Spacing="8">
+                            <TextBlock Text="TEXT EFFECTS" Classes="section-header" />
+                            <WrapPanel Orientation="Horizontal">
+                              <CheckBox Content="Bold" IsChecked="{Binding Bold}" Margin="0,0,16,4" />
+                              <CheckBox Content="Italic" IsChecked="{Binding Italic}" Margin="0,0,16,4" />
+                              <CheckBox Content="Underline" IsChecked="{Binding Underline}" Margin="0,0,16,4" />
+                              <CheckBox Content="Strikethrough" IsChecked="{Binding Strikethrough}" />
+                            </WrapPanel>
+                          </StackPanel>
+
+                        </StackPanel>
+                      </Border>
+                    </Expander>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </StackPanel>
+
+            <Border Classes="divider" />
+
+            <StackPanel Spacing="8">
+              <TextBlock Text="FONT" Classes="section-header" />
+              <Grid ColumnDefinitions="80,*" RowDefinitions="Auto,Auto,Auto" RowSpacing="8">
+                <TextBlock Text="Family" VerticalAlignment="Center" Foreground="#a1a1aa" />
+                <ComboBox Grid.Column="1" ItemsSource="{Binding AvailableFonts}"
+                          SelectedItem="{Binding FontFamily}" IsEditable="True" />
+
+                <TextBlock Grid.Row="1" Text="Size" VerticalAlignment="Center" Foreground="#a1a1aa" />
+                <StackPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                  <Slider Value="{Binding FontSize}" Minimum="24" Maximum="96" Width="300"
+                          TickFrequency="1" IsSnapToTickEnabled="True" />
+                  <TextBlock Text="{Binding FontSize}" VerticalAlignment="Center"
+                             Width="30" Foreground="#ffffff" />
+                </StackPanel>
+
+                <TextBlock Grid.Row="2" Text="Border" VerticalAlignment="Center" Foreground="#a1a1aa" />
+                <StackPanel Grid.Row="2" Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                  <Slider Value="{Binding BorderSize}" Minimum="0" Maximum="10" Width="300"
+                          TickFrequency="0.5" IsSnapToTickEnabled="True" />
+                  <TextBlock Text="{Binding BorderSize, StringFormat='{}{0:F1}'}"
+                             VerticalAlignment="Center" Width="30" Foreground="#ffffff" />
+                </StackPanel>
+              </Grid>
+            </StackPanel>
+
+            <Border Classes="divider" />
+
+            <StackPanel Spacing="8">
+              <TextBlock Text="SUBTITLE POSITION" Classes="section-header" />
+
+              <TextBlock Text="Alignment" Foreground="#a1a1aa" FontSize="13" FontWeight="Medium" />
+              <UniformGrid Rows="3" Columns="3" Width="150" Height="150">
+                <ToggleButton Content="&#x2196;" Command="{Binding SetSubtitleAlignmentCommand}" CommandParameter="7" IsChecked="{Binding SubtitleAlignment, Mode=OneWay, Converter={StaticResource ParseEquals}, ConverterParameter=7}" />
+                <ToggleButton Content="&#x2191;" Command="{Binding SetSubtitleAlignmentCommand}" CommandParameter="8" IsChecked="{Binding SubtitleAlignment, Mode=OneWay, Converter={StaticResource ParseEquals}, ConverterParameter=8}" />
+                <ToggleButton Content="&#x2197;" Command="{Binding SetSubtitleAlignmentCommand}" CommandParameter="9" IsChecked="{Binding SubtitleAlignment, Mode=OneWay, Converter={StaticResource ParseEquals}, ConverterParameter=9}" />
+                <ToggleButton Content="&#x2190;" Command="{Binding SetSubtitleAlignmentCommand}" CommandParameter="4" IsChecked="{Binding SubtitleAlignment, Mode=OneWay, Converter={StaticResource ParseEquals}, ConverterParameter=4}" />
+                <ToggleButton Content="&#x2022;" Command="{Binding SetSubtitleAlignmentCommand}" CommandParameter="5" IsChecked="{Binding SubtitleAlignment, Mode=OneWay, Converter={StaticResource ParseEquals}, ConverterParameter=5}" />
+                <ToggleButton Content="&#x2192;" Command="{Binding SetSubtitleAlignmentCommand}" CommandParameter="6" IsChecked="{Binding SubtitleAlignment, Mode=OneWay, Converter={StaticResource ParseEquals}, ConverterParameter=6}" />
+                <ToggleButton Content="&#x2199;" Command="{Binding SetSubtitleAlignmentCommand}" CommandParameter="1" IsChecked="{Binding SubtitleAlignment, Mode=OneWay, Converter={StaticResource ParseEquals}, ConverterParameter=1}" />
+                <ToggleButton Content="&#x2193;" Command="{Binding SetSubtitleAlignmentCommand}" CommandParameter="2" IsChecked="{Binding SubtitleAlignment, Mode=OneWay, Converter={StaticResource ParseEquals}, ConverterParameter=2}" />
+                <ToggleButton Content="&#x2198;" Command="{Binding SetSubtitleAlignmentCommand}" CommandParameter="3" IsChecked="{Binding SubtitleAlignment, Mode=OneWay, Converter={StaticResource ParseEquals}, ConverterParameter=3}" />
+              </UniformGrid>
+
+              <Grid ColumnDefinitions="80,*" RowDefinitions="Auto,Auto" RowSpacing="8">
+                <TextBlock Text="Margin X" VerticalAlignment="Center" Foreground="#a1a1aa" />
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                  <Slider Value="{Binding SubtitleMarginX}" Minimum="0" Maximum="400" Width="300" />
+                  <TextBlock Text="{Binding SubtitleMarginX, StringFormat='{}{0}px'}"
+                             VerticalAlignment="Center" Width="50" Foreground="#ffffff" />
+                </StackPanel>
+
+                <TextBlock Grid.Row="1" Text="Margin Y" VerticalAlignment="Center" Foreground="#a1a1aa" />
+                <StackPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                  <Slider Value="{Binding SubtitleMarginY}" Minimum="0" Maximum="400" Width="300" />
+                  <TextBlock Text="{Binding SubtitleMarginY, StringFormat='{}{0}px'}"
+                             VerticalAlignment="Center" Width="50" Foreground="#ffffff" />
+                </StackPanel>
+              </Grid>
+            </StackPanel>
+          </StackPanel>
+
+          <!-- ═══════ FEATURES TAB ═══════ -->
+          <StackPanel IsVisible="{Binding SelectedTabIndex, Converter={StaticResource ParseEquals}, ConverterParameter=2}"
+                      Spacing="16">
+            <TextBlock Text="Features" FontSize="20" FontWeight="Bold" Foreground="#ffffff" />
+
+            <Border Background="#18181b" BorderBrush="#3f3f46" BorderThickness="1"
+                    CornerRadius="8" Padding="16">
+              <StackPanel Spacing="8">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                  <ToggleSwitch IsChecked="{Binding IPlusOneEnabled}" />
+                  <TextBlock Text="i+1 Detection" FontSize="15" FontWeight="Medium"
+                             VerticalAlignment="Center" Foreground="#ffffff" />
+                </StackPanel>
+                <TextBlock Text="Highlights sentences where you know all words except one"
+                           FontSize="12" Foreground="#71717a" Margin="0,0,0,4" />
+                <StackPanel IsVisible="{Binding IPlusOneEnabled}" Spacing="8" Margin="16,0,0,0">
+                  <StackPanel Spacing="4">
+                    <TextBlock Text="Min words" Foreground="#a1a1aa" FontSize="13" FontWeight="Medium" />
+                    <NumericUpDown Value="{Binding IPlusOneMinTokens}"
+                                   Minimum="2" Maximum="10" Increment="1" />
+                  </StackPanel>
+                  <StackPanel Spacing="4">
+                    <TextBlock Text="Below frequency rank" Foreground="#a1a1aa" FontSize="13" FontWeight="Medium" />
+                    <NumericUpDown Value="{Binding IPlusOneMaxFrequencyRank}"
+                                   Minimum="1000" Maximum="50000" Increment="1000" />
+                  </StackPanel>
+                </StackPanel>
+              </StackPanel>
+            </Border>
+
+            <Border Background="#18181b" BorderBrush="#3f3f46" BorderThickness="1"
+                    CornerRadius="8" Padding="16">
+              <StackPanel Spacing="8">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                  <ToggleSwitch IsChecked="{Binding FrequencyMarkingEnabled}" />
+                  <TextBlock Text="Frequency Marking" FontSize="15" FontWeight="Medium"
+                             VerticalAlignment="Center" Foreground="#ffffff" />
+                </StackPanel>
+                <TextBlock Text="Underlines words within top N frequency"
+                           FontSize="12" Foreground="#71717a" />
+                <StackPanel IsVisible="{Binding FrequencyMarkingEnabled}" Spacing="8" Margin="16,0,0,0">
+                  <StackPanel Spacing="4">
+                    <TextBlock Text="Below frequency rank" Foreground="#a1a1aa" FontSize="13" FontWeight="Medium" />
+                    <NumericUpDown Value="{Binding FrequencyTopN}"
+                                   Minimum="1000" Maximum="50000" Increment="1000" />
+                  </StackPanel>
+                  <CheckBox Content="Mark all states (not just New)" IsChecked="{Binding FrequencyMarkAllStates}" />
+                </StackPanel>
+              </StackPanel>
+            </Border>
+
+            <Border Background="#18181b" BorderBrush="#3f3f46" BorderThickness="1"
+                    CornerRadius="8" Padding="16">
+              <StackPanel Spacing="8">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                  <ToggleSwitch IsChecked="{Binding BlurEnabled}" />
+                  <TextBlock Text="Blur / Spoiler Mode" FontSize="15" FontWeight="Medium"
+                             VerticalAlignment="Center" Foreground="#ffffff" />
+                </StackPanel>
+                <TextBlock Text="Blurs words in selected states until hovered"
+                           FontSize="12" Foreground="#71717a" />
+                <StackPanel IsVisible="{Binding BlurEnabled}" Spacing="8" Margin="16,0,0,0">
+                  <StackPanel Spacing="4">
+                    <TextBlock Text="Blur strength" Foreground="#a1a1aa" FontSize="13" FontWeight="Medium" />
+                    <Slider Value="{Binding BlurStrength}" Minimum="1" Maximum="20" Width="250" />
+                  </StackPanel>
+                  <CheckBox Content="Reveal on hover" IsChecked="{Binding BlurRevealOnHover}" />
+                  <StackPanel IsVisible="{Binding BlurRevealOnHover}" Spacing="4">
+                    <TextBlock Text="Reveal delay (ms)" Foreground="#a1a1aa" FontSize="13" FontWeight="Medium" />
+                    <NumericUpDown Value="{Binding BlurRevealDelayMs}"
+                                   Minimum="0" Maximum="1000" Increment="50" />
+                  </StackPanel>
+                  <TextBlock Text="Blur these states:" Foreground="#a1a1aa" FontSize="13" FontWeight="Medium" />
+                  <WrapPanel Orientation="Horizontal">
+                    <CheckBox Content="New" IsChecked="{Binding BlurNew}" Margin="0,0,8,4" />
+                    <CheckBox Content="Young" IsChecked="{Binding BlurYoung}" Margin="0,0,8,4" />
+                    <CheckBox Content="Mature" IsChecked="{Binding BlurMature}" Margin="0,0,8,4" />
+                    <CheckBox Content="Blacklisted" IsChecked="{Binding BlurBlacklisted}" Margin="0,0,8,4" />
+                    <CheckBox Content="Due" IsChecked="{Binding BlurDue}" Margin="0,0,8,4" />
+                    <CheckBox Content="Mastered" IsChecked="{Binding BlurMastered}" Margin="0,0,8,4" />
+                    <CheckBox Content="Redundant" IsChecked="{Binding BlurRedundant}" />
+                  </WrapPanel>
+                </StackPanel>
+              </StackPanel>
+            </Border>
+
+            <Border Background="#18181b" BorderBrush="#3f3f46" BorderThickness="1"
+                    CornerRadius="8" Padding="16">
+              <StackPanel Spacing="8">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                  <ToggleSwitch IsChecked="{Binding AutopauseEnabled}" />
+                  <TextBlock Text="Autopause" FontSize="15" FontWeight="Medium"
+                             VerticalAlignment="Center" Foreground="#ffffff" />
+                </StackPanel>
+                <TextBlock Text="Pauses playback when hovering over subtitles"
+                           FontSize="12" Foreground="#71717a" />
+                <StackPanel IsVisible="{Binding AutopauseEnabled}" Spacing="8" Margin="16,0,0,0">
+                  <StackPanel Spacing="4">
+                    <TextBlock Text="Pause delay (ms)" Foreground="#a1a1aa" FontSize="13" FontWeight="Medium" />
+                    <NumericUpDown Value="{Binding AutopauseDelayMs}"
+                                   Minimum="0" Maximum="2000" Increment="100" />
+                  </StackPanel>
+                </StackPanel>
+              </StackPanel>
+            </Border>
+
+            <Border Background="#18181b" BorderBrush="#3f3f46" BorderThickness="1"
+                    CornerRadius="8" Padding="16">
+              <StackPanel Spacing="8">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                  <ToggleSwitch IsChecked="{Binding MiningEnabled}" />
+                  <TextBlock Text="Mining" FontSize="15" FontWeight="Medium"
+                             VerticalAlignment="Center" Foreground="#ffffff" />
+                </StackPanel>
+                <StackPanel IsVisible="{Binding MiningEnabled}" Margin="16,0,0,0">
+                  <CheckBox Content="Capture sentence context" IsChecked="{Binding MiningCaptureSentence}" />
+                </StackPanel>
+              </StackPanel>
+            </Border>
+
+            <Border Background="#18181b" BorderBrush="#3f3f46" BorderThickness="1"
+                    CornerRadius="8" Padding="16">
+              <StackPanel Orientation="Horizontal" Spacing="8">
+                <ToggleSwitch IsChecked="{Binding InlineReviewEnabled}" />
+                <TextBlock Text="Inline Review" FontSize="15" FontWeight="Medium"
+                           VerticalAlignment="Center" Foreground="#ffffff" />
+              </StackPanel>
+            </Border>
+          </StackPanel>
+
+          <!-- ═══════ POPUP TAB ═══════ -->
+          <StackPanel IsVisible="{Binding SelectedTabIndex, Converter={StaticResource ParseEquals}, ConverterParameter=3}"
+                      Spacing="16">
+            <TextBlock Text="Popup" FontSize="20" FontWeight="Bold" Foreground="#ffffff" />
+
+            <StackPanel Spacing="4">
+              <TextBlock Text="Trigger" Foreground="#a1a1aa" FontSize="13" FontWeight="Medium" />
+              <StackPanel Orientation="Horizontal" Spacing="16">
+                <RadioButton Content="Hover" GroupName="PopupTrigger"
+                             IsChecked="{Binding PopupTrigger, Converter={StaticResource ParseEquals}, ConverterParameter=Hover}" />
+                <RadioButton Content="Click" GroupName="PopupTrigger"
+                             IsChecked="{Binding PopupTrigger, Converter={StaticResource ParseEquals}, ConverterParameter=Click}" />
+              </StackPanel>
+            </StackPanel>
+
+            <Border Classes="divider" />
+
+            <StackPanel Spacing="8">
+              <TextBlock Text="TIMING" Classes="section-header" />
+              <StackPanel Spacing="4">
+                <TextBlock Text="Hover delay (ms)" Foreground="#a1a1aa" FontSize="13" FontWeight="Medium" />
+                <NumericUpDown Value="{Binding PopupHoverDelayMs}" Minimum="10" Maximum="3000" Increment="10" />
+              </StackPanel>
+              <CheckBox Content="Auto-hide popup" IsChecked="{Binding PopupAutoHide}" />
+              <StackPanel IsVisible="{Binding PopupAutoHide}" Spacing="4" Margin="24,0,0,0">
+                <TextBlock Text="Auto-hide delay (ms)" Foreground="#a1a1aa" FontSize="13" FontWeight="Medium" />
+                <NumericUpDown Value="{Binding PopupAutoHideDelayMs}" Minimum="100" Maximum="5000" Increment="100" />
+              </StackPanel>
+              <CheckBox Content="Hide popup after action" IsChecked="{Binding PopupHideAfterAction}" />
+            </StackPanel>
+
+            <Border Classes="divider" />
+
+            <StackPanel Spacing="4">
+              <TextBlock Text="Position" Foreground="#a1a1aa" FontSize="13" FontWeight="Medium" />
+              <StackPanel Orientation="Horizontal" Spacing="16">
+                <RadioButton Content="Above subtitle" GroupName="PopupPos"
+                             IsChecked="{Binding PopupPosition, Converter={StaticResource ParseEquals}, ConverterParameter=AboveSubtitle}" />
+                <RadioButton Content="Below subtitle" GroupName="PopupPos"
+                             IsChecked="{Binding PopupPosition, Converter={StaticResource ParseEquals}, ConverterParameter=BelowSubtitle}" />
+              </StackPanel>
+            </StackPanel>
+
+            <Border Classes="divider" />
+
+            <StackPanel Spacing="8">
+              <TextBlock Text="APPEARANCE" Classes="section-header" />
+              <Grid ColumnDefinitions="100,*" RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="8">
+                <TextBlock Text="Font scale" VerticalAlignment="Center" Foreground="#a1a1aa" />
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                  <Slider Value="{Binding PopupFontScale}" Minimum="0.5" Maximum="1.5" Width="250"
+                          TickFrequency="0.05" IsSnapToTickEnabled="True" />
+                  <TextBlock Text="{Binding PopupFontScale, StringFormat='{}{0:F2}'}"
+                             VerticalAlignment="Center" Foreground="#ffffff" />
+                </StackPanel>
+
+                <TextBlock Grid.Row="1" Text="BG opacity" VerticalAlignment="Center" Foreground="#a1a1aa" />
+                <StackPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                  <Slider Value="{Binding PopupBgOpacity}" Minimum="0" Maximum="100" Width="250" />
+                  <TextBlock Text="{Binding PopupBgOpacity, StringFormat='{}{0}%'}"
+                             VerticalAlignment="Center" Foreground="#ffffff" />
+                </StackPanel>
+
+                <TextBlock Grid.Row="2" Text="Background" VerticalAlignment="Center" Foreground="#a1a1aa" />
+                <ColorPicker Grid.Row="2" Grid.Column="1" IsAlphaVisible="False"
+                             Color="{Binding PopupBgColor, Converter={StaticResource HexToColor}}"
+                             HorizontalAlignment="Left" />
+
+                <TextBlock Grid.Row="3" Text="Max meanings" VerticalAlignment="Center" Foreground="#a1a1aa" />
+                <NumericUpDown Grid.Row="3" Grid.Column="1"
+                               Value="{Binding PopupMaxMeanings}" Minimum="1" Maximum="20" Increment="1" />
+              </Grid>
+            </StackPanel>
+
+            <Border Classes="divider" />
+
+            <StackPanel Spacing="8">
+              <TextBlock Text="CONTENT" Classes="section-header" />
+              <WrapPanel Orientation="Horizontal">
+                <CheckBox Content="Pitch accent" IsChecked="{Binding PopupShowPitch}" Margin="0,0,16,0" />
+                <CheckBox Content="Frequency rank" IsChecked="{Binding PopupShowFrequency}" Margin="0,0,16,0" />
+                <CheckBox Content="Conjugation" IsChecked="{Binding PopupShowConjugation}" />
+              </WrapPanel>
+            </StackPanel>
+
+            <Border Classes="divider" />
+
+            <StackPanel Spacing="8">
+              <TextBlock Text="ACTION BUTTONS" Classes="section-header" />
+              <CheckBox Content="Show state actions" IsChecked="{Binding PopupShowStateActions}" />
+              <StackPanel IsVisible="{Binding PopupShowStateActions}" Margin="24,0,0,0" Spacing="4">
+                <CheckBox Content="Never Forget" IsChecked="{Binding PopupShowNeverForget}" />
+                <CheckBox Content="Blacklist" IsChecked="{Binding PopupShowBlacklist}" />
+                <CheckBox Content="Suspend" IsChecked="{Binding PopupShowSuspend}" />
+                <CheckBox Content="Forget" IsChecked="{Binding PopupShowForget}" />
+              </StackPanel>
+              <CheckBox Content="Show review buttons" IsChecked="{Binding PopupShowReview}" />
+              <CheckBox Content="Use two grades (Pass/Fail) instead of four"
+                        IsChecked="{Binding PopupUseTwoGrades}" />
+            </StackPanel>
+          </StackPanel>
+
+          <!-- ═══════ KEYBINDS TAB ═══════ -->
+          <StackPanel IsVisible="{Binding SelectedTabIndex, Converter={StaticResource ParseEquals}, ConverterParameter=4}"
+                      Spacing="16">
+            <TextBlock Text="Keybinds" FontSize="20" FontWeight="Bold" Foreground="#ffffff" />
+            <TextBlock Text="Keyboard shortcuts for popup actions (only active when popup is visible)"
+                       FontSize="12" Foreground="#71717a" TextWrapping="Wrap" />
+            <TextBlock Text="Use mpv key names: 1, 2, a, Ctrl+s, Shift+r, etc."
+                       FontSize="11" Foreground="#52525b" TextWrapping="Wrap" />
+
+            <Border Background="#18181b" BorderBrush="#3f3f46" BorderThickness="1"
+                    CornerRadius="8" Padding="16">
+              <StackPanel Spacing="12">
+                <TextBlock Text="REVIEW" Classes="section-header" />
+                <Grid ColumnDefinitions="120,*" RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="8">
+                  <TextBlock Text="Again / Fail" VerticalAlignment="Center" Foreground="#a1a1aa" />
+                  <TextBox Grid.Column="1" Text="{Binding KeybindReviewAgain}"
+                           PlaceholderText="e.g. 1" MaxWidth="200" HorizontalAlignment="Left" />
+
+                  <TextBlock Grid.Row="1" Text="Hard" VerticalAlignment="Center" Foreground="#a1a1aa" />
+                  <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding KeybindReviewHard}"
+                           PlaceholderText="e.g. 2" MaxWidth="200" HorizontalAlignment="Left" />
+
+                  <TextBlock Grid.Row="2" Text="Good / Pass" VerticalAlignment="Center" Foreground="#a1a1aa" />
+                  <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding KeybindReviewGood}"
+                           PlaceholderText="e.g. 3" MaxWidth="200" HorizontalAlignment="Left" />
+
+                  <TextBlock Grid.Row="3" Text="Easy" VerticalAlignment="Center" Foreground="#a1a1aa" />
+                  <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding KeybindReviewEasy}"
+                           PlaceholderText="e.g. 4" MaxWidth="200" HorizontalAlignment="Left" />
+                </Grid>
+              </StackPanel>
+            </Border>
+
+            <Border Background="#18181b" BorderBrush="#3f3f46" BorderThickness="1"
+                    CornerRadius="8" Padding="16">
+              <StackPanel Spacing="12">
+                <TextBlock Text="STATE ACTIONS" Classes="section-header" />
+                <Grid ColumnDefinitions="120,*" RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="8">
+                  <TextBlock Text="Never Forget" VerticalAlignment="Center" Foreground="#a1a1aa" />
+                  <TextBox Grid.Column="1" Text="{Binding KeybindNeverForget}"
+                           PlaceholderText="e.g. m" MaxWidth="200" HorizontalAlignment="Left" />
+
+                  <TextBlock Grid.Row="1" Text="Blacklist" VerticalAlignment="Center" Foreground="#a1a1aa" />
+                  <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding KeybindBlacklist}"
+                           PlaceholderText="e.g. b" MaxWidth="200" HorizontalAlignment="Left" />
+
+                  <TextBlock Grid.Row="2" Text="Suspend" VerticalAlignment="Center" Foreground="#a1a1aa" />
+                  <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding KeybindSuspend}"
+                           PlaceholderText="e.g. s" MaxWidth="200" HorizontalAlignment="Left" />
+
+                  <TextBlock Grid.Row="3" Text="Forget" VerticalAlignment="Center" Foreground="#a1a1aa" />
+                  <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding KeybindForget}"
+                           PlaceholderText="e.g. f" MaxWidth="200" HorizontalAlignment="Left" />
+                </Grid>
+              </StackPanel>
+            </Border>
+          </StackPanel>
+
+          <!-- ═══════ ADVANCED TAB ═══════ -->
+          <StackPanel IsVisible="{Binding SelectedTabIndex, Converter={StaticResource ParseEquals}, ConverterParameter=5}"
+                      Spacing="16">
+            <TextBlock Text="Advanced" FontSize="20" FontWeight="Bold" Foreground="#ffffff" />
+
+            <StackPanel Spacing="4">
+              <TextBlock Text="Parse cache size" Foreground="#a1a1aa" FontSize="13" FontWeight="Medium" />
+              <NumericUpDown Value="{Binding CacheSize}" Minimum="500" Maximum="10000" Increment="500" />
+              <TextBlock Text="Number of parsed subtitles kept in memory (requires restart)"
+                         FontSize="11" Foreground="#71717a" />
+            </StackPanel>
+
+            <Border Classes="divider" />
+
+            <CheckBox Content="Enable subtitle pre-parsing" IsChecked="{Binding PreparseEnabled}" />
+
+            <Border Classes="divider" />
+
+            <StackPanel Spacing="4">
+              <TextBlock Text="MOUSE INTERACTION" Classes="section-header" />
+              <TextBlock Text="Interaction zone (%)" Foreground="#a1a1aa" FontSize="13" FontWeight="Medium" Margin="0,4,0,0" />
+              <StackPanel Orientation="Horizontal" Spacing="8">
+                <Slider Value="{Binding MouseZonePercent}" Minimum="30" Maximum="100" Width="250"
+                        TickFrequency="5" IsSnapToTickEnabled="True" />
+                <TextBlock Text="{Binding MouseZonePercent, StringFormat='Bottom {0}%'}"
+                           VerticalAlignment="Center" Foreground="#ffffff" />
+              </StackPanel>
+              <TextBlock Text="Mouse events are only tracked in this percentage of the screen from the bottom"
+                         FontSize="11" Foreground="#71717a" TextWrapping="Wrap" />
+            </StackPanel>
+
+            <Border Classes="divider" />
+
+            <StackPanel Spacing="8">
+              <TextBlock Text="DIAGNOSTICS" Classes="section-header" />
+              <CheckBox Content="Show status overlay messages" IsChecked="{Binding StatusOverlayEnabled}" />
+              <CheckBox Content="Enable debug logging" IsChecked="{Binding DebugLogging}" />
+            </StackPanel>
+
+            <Border Classes="divider" />
+
+            <StackPanel Spacing="4">
+              <TextBlock Text="Config file location" Foreground="#a1a1aa" FontSize="13" FontWeight="Medium" />
+              <TextBlock Text="%APPDATA%\jiten-mpv\config.json"
+                         FontSize="12" Foreground="#71717a" IsHitTestVisible="False" />
+            </StackPanel>
+          </StackPanel>
+
+        </Panel>
+      </ScrollViewer>
+    </Grid>
+
+    <Border Grid.Row="1" Background="#09090b" Padding="16,12" BorderBrush="#27272a" BorderThickness="0,1,0,0">
+      <Grid ColumnDefinitions="Auto,*,Auto,Auto">
+        <Button Content="Reset Section" Classes="secondary"
+                Command="{Binding ResetSectionCommand}" />
+        <Button Grid.Column="2" Content="Close" IsCancel="True"
+                Classes="secondary"
+                Click="OnClose" Margin="0,0,8,0" />
+        <Button Grid.Column="3" Content="Save"
+                Click="OnSave" Classes="accent" />
+      </Grid>
+    </Border>
+  </Grid>
+</Window>

@@ -1,10 +1,19 @@
 using JitenMPV.Core.Config;
 using JitenMPV.Core.Mpv;
+using Microsoft.Extensions.Logging;
 
 namespace JitenMPV.Core.Interaction;
 
-public sealed class AutopauseService(PluginSettings settings)
+public sealed class AutopauseService(PluginSettings settings, ILogger logger)
 {
+    private volatile PluginSettings _settings = settings;
+
+    /// Serializes the pause decision against the delayed pause task, so a hover-leave and the
+    /// pause it is meant to cancel can never both take effect.
+    private readonly SemaphoreSlim _stateLock = new(1, 1);
+
+    public void UpdateSettings(PluginSettings newSettings) => _settings = newSettings;
+
     private bool _isPausedByUs;
     private bool _wasAlreadyPaused;
     private bool _isHovering;
@@ -12,54 +21,104 @@ public sealed class AutopauseService(PluginSettings settings)
 
     public async Task OnHoverEnterAsync(MpvIpcClient ipc, CancellationToken ct)
     {
-        if (!settings.AutopauseEnabled || _isPausedByUs || _isHovering) return;
-        _isHovering = true;
+        if (!_settings.AutopauseEnabled) return;
 
-        TaskHelper.CancelAndDispose(ref _delayCts);
-
-        var alreadyPaused = await ipc.GetPropertyAsync<bool>("pause", ct);
-        if (alreadyPaused)
+        await _stateLock.WaitAsync(ct);
+        try
         {
-            _wasAlreadyPaused = true;
-            return;
-        }
+            if (_isPausedByUs || _isHovering) return;
+            _isHovering = true;
 
-        _wasAlreadyPaused = false;
+            TaskHelper.CancelAndDispose(ref _delayCts);
 
-        if (settings.AutopauseDelayMs > 0)
-        {
-            _delayCts = new CancellationTokenSource();
-            var cts = _delayCts;
-            try
+            if (await ipc.GetPropertyAsync<bool>("pause", ct))
             {
-                await Task.Delay(settings.AutopauseDelayMs, cts.Token);
-            }
-            catch (OperationCanceledException)
-            {
+                _wasAlreadyPaused = true;
                 return;
             }
-        }
 
-        await ipc.SetPropertyAsync("pause", true, ct);
-        _isPausedByUs = true;
+            _wasAlreadyPaused = false;
+
+            int delayMs = _settings.AutopauseDelayMs;
+            if (delayMs <= 0)
+            {
+                await ipc.SetPropertyAsync("pause", true, ct);
+                _isPausedByUs = true;
+                return;
+            }
+
+            _delayCts = new CancellationTokenSource();
+            // Detached: the caller holds the interaction lock, and awaiting the delay under it
+            // would drop the mouse-leave event that cancels this pause.
+            _ = PauseAfterDelayAsync(ipc, delayMs, _delayCts.Token);
+        }
+        finally
+        {
+            _stateLock.Release();
+        }
+    }
+
+    private async Task PauseAfterDelayAsync(MpvIpcClient ipc, int delayMs, CancellationToken token)
+    {
+        try
+        {
+            await Task.Delay(delayMs, token);
+
+            await _stateLock.WaitAsync(token);
+            try
+            {
+                if (!_isHovering || _isPausedByUs) return;
+                token.ThrowIfCancellationRequested();
+
+                // Uncancellable once decided: a pause that lands without _isPausedByUs being set
+                // would leave mpv paused with nothing left to unpause it.
+                await ipc.SetPropertyAsync("pause", true, CancellationToken.None);
+                _isPausedByUs = true;
+            }
+            finally
+            {
+                _stateLock.Release();
+            }
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Delayed autopause failed");
+        }
     }
 
     public async Task OnHoverLeaveAsync(MpvIpcClient ipc, CancellationToken ct)
     {
-        _isHovering = false;
-        TaskHelper.CancelAndDispose(ref _delayCts);
+        await _stateLock.WaitAsync(ct);
+        try
+        {
+            _isHovering = false;
+            TaskHelper.CancelAndDispose(ref _delayCts);
 
-        if (!_isPausedByUs || _wasAlreadyPaused) return;
+            if (!_isPausedByUs || _wasAlreadyPaused) return;
 
-        await ipc.SetPropertyAsync("pause", false, ct);
-        _isPausedByUs = false;
+            await ipc.SetPropertyAsync("pause", false, CancellationToken.None);
+            _isPausedByUs = false;
+        }
+        finally
+        {
+            _stateLock.Release();
+        }
     }
 
-    public void Reset()
+    public async Task ResetAsync()
     {
-        _isHovering = false;
-        TaskHelper.CancelAndDispose(ref _delayCts);
-        _isPausedByUs = false;
-        _wasAlreadyPaused = false;
+        await _stateLock.WaitAsync();
+        try
+        {
+            _isHovering = false;
+            TaskHelper.CancelAndDispose(ref _delayCts);
+            _isPausedByUs = false;
+            _wasAlreadyPaused = false;
+        }
+        finally
+        {
+            _stateLock.Release();
+        }
     }
 }

@@ -1,4 +1,5 @@
 using JitenMPV.Core.Api.Models;
+using JitenMPV.Core.Config;
 
 namespace JitenMPV.Core.Interaction;
 
@@ -28,4 +29,10 @@ public sealed record PopupData
     // Review visibility
     public bool ShowReview { get; init; }
     public bool UseTwoGrades { get; init; }
+
+    // Popup appearance
+    public string PopupBgColor { get; init; } = "#1A1A1A";
+    public int PopupBgOpacity { get; init; } = 200;
+    public double FontScale { get; init; } = 1.0;
+    public PopupPositionMode PositionMode { get; init; } = PopupPositionMode.AboveSubtitle;
 }

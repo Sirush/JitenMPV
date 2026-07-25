@@ -13,6 +13,15 @@ public sealed class SubtitleColorizer(
     FrequencyMarker? frequencyMarker,
     ILogger logger)
 {
+    private sealed record DetectorSnapshot(IPlusOneDetector? IPlusOne, FrequencyMarker? Frequency);
+
+    private volatile DetectorSnapshot _detectors = new(iPlusOneDetector, frequencyMarker);
+
+    public void UpdateDetectors(IPlusOneDetector? iPlusOne, FrequencyMarker? freqMarker)
+    {
+        _detectors = new DetectorSnapshot(iPlusOne, freqMarker);
+    }
+
     public async Task<(string Ass, ParseCacheEntry? Entry)> ColorizeAsync(string subtitleText, CancellationToken ct)
         => await ColorizeWithRevealAsync(subtitleText, null, ct);
 
@@ -34,8 +43,9 @@ public sealed class SubtitleColorizer(
                 cache.Set(subtitleText, entry);
             }
 
-            var iPlusOne = iPlusOneDetector?.Detect(entry.Tokens, entry.VocabStates, entry.FrequencyRanks);
-            var freqWords = frequencyMarker?.Mark(entry.Tokens, entry.VocabStates, entry.FrequencyRanks);
+            var det = _detectors;
+            var iPlusOne = det.IPlusOne?.Detect(entry.Tokens, entry.VocabStates, entry.FrequencyRanks);
+            var freqWords = det.Frequency?.Mark(entry.Tokens, entry.VocabStates, entry.FrequencyRanks);
 
             return (renderer.RenderSubtitle(subtitleText, entry, iPlusOne, freqWords, revealedWords), entry);
         }

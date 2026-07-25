@@ -8,10 +8,9 @@ using Microsoft.Extensions.Logging;
 
 namespace JitenMPV.Core.Plugin;
 
-public sealed class PreParseService(JitenApiClient api, ParseCache cache, ILogger logger)
+public sealed class PreParseService(JitenApiClient api, ParseCache cache, ILogger logger, int maxBatchChars = 60_000)
 {
-    private const int MaxBatchChars = 60_000;
-
+    private static volatile int _ffmpegState; // 0=unchecked, 1=available, -1=unavailable
     public async Task PreParseFileAsync(string subtitleFilePath, CancellationToken ct)
     {
         logger.LogInformation("Pre-parsing external subtitle file: {Path}", subtitleFilePath);
@@ -83,6 +82,9 @@ public sealed class PreParseService(JitenApiClient api, ParseCache cache, ILogge
 
     private static async Task<bool> IsFfmpegAvailableAsync(CancellationToken ct)
     {
+        if (_ffmpegState != 0)
+            return _ffmpegState == 1;
+
         try
         {
             using var proc = new Process();
@@ -99,12 +101,14 @@ public sealed class PreParseService(JitenApiClient api, ParseCache cache, ILogge
             using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
             timeoutCts.CancelAfter(3000);
             await proc.WaitForExitAsync(timeoutCts.Token);
-            return proc.ExitCode == 0;
+            _ffmpegState = proc.ExitCode == 0 ? 1 : -1;
         }
         catch
         {
-            return false;
+            _ffmpegState = -1;
         }
+
+        return _ffmpegState == 1;
     }
 
     private static async Task<int> GetSubTrackIndex(MpvIpcClient ipc, CancellationToken ct)
@@ -190,7 +194,7 @@ public sealed class PreParseService(JitenApiClient api, ParseCache cache, ILogge
 
             int charCount = 0;
             int batchEnd = i;
-            while (batchEnd < texts.Count && charCount + texts[batchEnd].Length <= MaxBatchChars)
+            while (batchEnd < texts.Count && charCount + texts[batchEnd].Length <= maxBatchChars)
             {
                 charCount += texts[batchEnd].Length;
                 batchEnd++;

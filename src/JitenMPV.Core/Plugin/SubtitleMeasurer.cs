@@ -8,8 +8,25 @@ namespace JitenMPV.Core.Plugin;
 public sealed class SubtitleMeasurer(PluginSettings settings, OsdState osd)
 {
     private const int MeasureId = 99;
+    private volatile PluginSettings _settings = settings;
     private readonly BoundedCache<string, List<WordRect>> _cache = new(2000);
     private int _lastOsdVersion = -1;
+
+    public void UpdateSettings(PluginSettings newSettings)
+    {
+        var old = _settings;
+        _settings = newSettings;
+
+        if (old.FontFamily != newSettings.FontFamily ||
+            old.FontSize != newSettings.FontSize ||
+            Math.Abs(old.BorderSize - newSettings.BorderSize) > 0.01 ||
+            old.SubtitleAlignment != newSettings.SubtitleAlignment ||
+            old.SubtitleMarginX != newSettings.SubtitleMarginX ||
+            old.SubtitleMarginY != newSettings.SubtitleMarginY)
+        {
+            _cache.Clear();
+        }
+    }
 
     public async Task<List<WordRect>> MeasureAsync(
         string text, ParseCacheEntry entry,
@@ -33,15 +50,17 @@ public sealed class SubtitleMeasurer(PluginSettings settings, OsdState osd)
     private async Task<List<WordRect>> MeasureInternalAsync(
         string text, ParseCacheEntry entry, MpvIpcClient ipc, CancellationToken ct)
     {
-        var styleTags = OverlayRenderer.BuildStyleTags(settings);
+        var s = _settings;
+        var styleTags = OverlayRenderer.BuildStyleTags(s);
         float resX = OverlayRenderer.ComputeResX(osd.Width, osd.Height);
-        var posTags = OverlayRenderer.BuildPositionTags(resX, settings);
+        var posTags = OverlayRenderer.BuildPositionTags(resX, s);
 
         var lines = SplitLines(text);
         var rects = new List<WordRect>();
         int maxOverlayId = MeasureId;
 
-        var fullAss = $@"{{\an2{posTags}{styleTags}}}{AssTagBuilder.EscapeText(text)}";
+        int align = OverlayRenderer.ClampAlign(s.SubtitleAlignment);
+        var fullAss = $@"{{\an{align}{posTags}{styleTags}}}{AssTagBuilder.EscapeText(text)}";
         var fullBounds = await ipc.MeasureOverlayAsync(MeasureId, fullAss, ct);
         if (fullBounds is null) return rects;
 
@@ -60,8 +79,9 @@ public sealed class SubtitleMeasurer(PluginSettings settings, OsdState osd)
 
             if (lineTokens.Count == 0) continue;
 
-            var lineAss = $@"{{\an7\pos(0,0){styleTags}}}{AssTagBuilder.EscapeText(lineText)}";
-            var lineCenteredAss = $@"{{\an2{posTags}{styleTags}}}{AssTagBuilder.EscapeText(lineText)}";
+            var escapedLine = AssTagBuilder.EscapeText(lineText);
+            var lineAss = $@"{{\an7\pos(0,0){styleTags}}}{escapedLine}";
+            var lineCenteredAss = $@"{{\an{align}{posTags}{styleTags}}}{escapedLine}";
 
             var lineBoundsTask = ipc.MeasureOverlayAsync(MeasureId, lineAss, ct);
             var lineCenteredTask = ipc.MeasureOverlayAsync(MeasureId + 1, lineCenteredAss, ct);

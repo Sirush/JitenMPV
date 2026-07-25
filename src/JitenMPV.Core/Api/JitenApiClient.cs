@@ -7,19 +7,38 @@ namespace JitenMPV.Core.Api;
 
 public sealed class JitenApiClient
 {
-    private static readonly JsonSerializerOptions JsonOptions = new()
+    // DTOs carry explicit [JsonPropertyName] (camelCase), so no naming policy is needed here.
+    private static readonly JsonSerializerOptions JsonOptions = new();
+
+    /// Shared and never disposed: UpdateConnection swaps clients while requests may still be in
+    /// flight, and disposing the client that owns the handler would abort them.
+    private static readonly SocketsHttpHandler SharedHandler = new()
     {
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+        PooledConnectionLifetime = TimeSpan.FromMinutes(5)
     };
 
-    private readonly HttpClient _http;
+    private volatile HttpClient _http;
     private readonly ILogger _logger;
 
-    public JitenApiClient(HttpClient http, string apiKey, ILogger logger)
+    public JitenApiClient(string? apiKey, string baseUrl, int timeoutSeconds, ILogger logger)
     {
-        _http = http;
         _logger = logger;
-        _http.DefaultRequestHeaders.Add("X-Api-Key", apiKey);
+        _http = BuildClient(apiKey, baseUrl, timeoutSeconds);
+    }
+
+    public void UpdateConnection(string? apiKey, string baseUrl, int timeoutSeconds)
+        => _http = BuildClient(apiKey, baseUrl, timeoutSeconds);
+
+    private static HttpClient BuildClient(string? apiKey, string baseUrl, int timeoutSeconds)
+    {
+        var http = new HttpClient(SharedHandler, disposeHandler: false)
+        {
+            BaseAddress = new Uri(baseUrl),
+            Timeout = TimeSpan.FromSeconds(timeoutSeconds)
+        };
+        if (!string.IsNullOrEmpty(apiKey))
+            http.DefaultRequestHeaders.Add("X-Api-Key", apiKey);
+        return http;
     }
 
     public async Task<ReaderParseResponse> ParseAsync(string text, CancellationToken ct)

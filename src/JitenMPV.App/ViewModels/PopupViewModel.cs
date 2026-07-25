@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Windows.Input;
+using Avalonia.Media;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using JitenMPV.Core.Api.Models;
@@ -11,6 +12,7 @@ namespace JitenMPV.App.ViewModels;
 
 public partial class PopupViewModel : ViewModelBase
 {
+    [ObservableProperty] private IBrush _popupBackground = new SolidColorBrush(Color.FromArgb(200, 0x1A, 0x1A, 0x1A));
     [ObservableProperty] private string _spelling = "";
     [ObservableProperty] private string _reading = "";
     [ObservableProperty] private int _frequencyRank;
@@ -36,6 +38,9 @@ public partial class PopupViewModel : ViewModelBase
 
     [ObservableProperty] private bool _showReview;
     [ObservableProperty] private bool _showHardEasy;
+
+    private string? _lastBgColor;
+    private int _lastBgOpacity = -1;
 
     public event Action<PopupAction>? ActionClicked;
 
@@ -70,20 +75,17 @@ public partial class PopupViewModel : ViewModelBase
         ShowFrequency = data.FrequencyRank > 0;
 
         ShowPartsOfSpeech = data.PartsOfSpeech.Count > 0;
-        if (ShowPartsOfSpeech)
-            PartsOfSpeech = string.Join(", ", data.PartsOfSpeech);
+        PartsOfSpeech = ShowPartsOfSpeech ? string.Join(", ", data.PartsOfSpeech) : "";
 
         ShowPitch = data.PitchAccents.Count > 0;
-        if (ShowPitch)
-            PitchAccents = string.Join(", ", data.PitchAccents);
+        PitchAccents = ShowPitch ? string.Join(", ", data.PitchAccents) : "";
 
         Meanings = data.MeaningsChunks
             .Select((chunk, i) => $"{i + 1}. {string.Join("; ", chunk)}")
             .ToList();
 
         ShowConjugation = data.Conjugations.Count > 0;
-        if (ShowConjugation)
-            Conjugation = string.Join(" → ", data.Conjugations);
+        Conjugation = ShowConjugation ? string.Join(" → ", data.Conjugations) : "";
 
         StateLabel = data.State.ToString();
 
@@ -99,5 +101,15 @@ public partial class PopupViewModel : ViewModelBase
 
         ShowReview = data.ShowReview;
         ShowHardEasy = !data.UseTwoGrades;
+
+        if (data.PopupBgColor != _lastBgColor || data.PopupBgOpacity != _lastBgOpacity)
+        {
+            if (Color.TryParse(data.PopupBgColor, out var bgColor))
+            {
+                _lastBgColor = data.PopupBgColor;
+                _lastBgOpacity = data.PopupBgOpacity;
+                PopupBackground = new SolidColorBrush(Color.FromArgb((byte)data.PopupBgOpacity, bgColor.R, bgColor.G, bgColor.B));
+            }
+        }
     }
 }

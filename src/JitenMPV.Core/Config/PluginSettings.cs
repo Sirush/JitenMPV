@@ -10,6 +10,9 @@ public sealed class PluginSettings
     [JsonPropertyName("api_key")]
     public string? ApiKey { get; set; }
 
+    [JsonPropertyName("api_timeout_seconds")]
+    public int ApiTimeoutSeconds { get; set; } = 30;
+
     [JsonPropertyName("font_family")]
     public string FontFamily { get; set; } = "Yu Gothic";
 
@@ -21,6 +24,15 @@ public sealed class PluginSettings
 
     [JsonPropertyName("bottom_margin")]
     public int BottomMargin { get; set; } = 50;
+
+    [JsonPropertyName("subtitle_alignment")]
+    public int SubtitleAlignment { get; set; } = 2;
+
+    [JsonPropertyName("subtitle_margin_x")]
+    public int SubtitleMarginX { get; set; } = 0;
+
+    [JsonPropertyName("subtitle_margin_y")]
+    public int SubtitleMarginY { get; set; } = 50;
 
     [JsonPropertyName("theme")]
     public string Theme { get; set; } = "Default";
@@ -53,7 +65,7 @@ public sealed class PluginSettings
     public bool BlurRevealOnHover { get; set; } = true;
 
     [JsonPropertyName("blur_states")]
-    public List<int> BlurStates { get; set; } = [0];
+    public List<int> BlurStates { get; set; } = [2, 3, 5, 6];
 
     [JsonPropertyName("blur_reveal_delay_ms")]
     public int BlurRevealDelayMs { get; set; } = 200;
@@ -113,7 +125,7 @@ public sealed class PluginSettings
     public int PopupBgOpacity { get; set; } = 200;
 
     [JsonPropertyName("autopause_enabled")]
-    public bool AutopauseEnabled { get; set; }
+    public bool AutopauseEnabled { get; set; } = true;
 
     [JsonPropertyName("autopause_delay_ms")]
     public int AutopauseDelayMs { get; set; }
@@ -126,4 +138,45 @@ public sealed class PluginSettings
 
     [JsonPropertyName("inline_review_enabled")]
     public bool InlineReviewEnabled { get; set; } = true;
+
+    [JsonPropertyName("cache_size")]
+    public int CacheSize { get; set; } = 2000;
+
+    [JsonPropertyName("popup_max_meanings")]
+    public int PopupMaxMeanings { get; set; } = 10;
+
+    [JsonPropertyName("popup_bg_color")]
+    public string PopupBgColor { get; set; } = "#1A1A1A";
+
+    [JsonPropertyName("preparse_enabled")]
+    public bool PreparseEnabled { get; set; } = true;
+
+    [JsonPropertyName("preparse_batch_size")]
+    public int PreparseBatchSize { get; set; } = 60000;
+
+    [JsonPropertyName("status_overlay_enabled")]
+    public bool StatusOverlayEnabled { get; set; } = true;
+
+    [JsonPropertyName("debug_logging")]
+    public bool DebugLogging { get; set; }
+
+    [JsonPropertyName("mouse_zone_percent")]
+    public int MouseZonePercent { get; set; } = 65;
+
+    [JsonPropertyName("custom_theme_colors")]
+    public Dictionary<string, CustomStateStyle>? CustomThemeColors { get; set; }
+
+    [JsonPropertyName("popup_keybinds")]
+    public Dictionary<string, string>? PopupKeybinds { get; set; } = new()
+    {
+        ["ReviewAgain"] = "1",
+        ["ReviewHard"] = "2",
+        ["ReviewGood"] = "3",
+        ["ReviewEasy"] = "4",
+        ["NeverForget"] = "m",
+        ["Blacklist"] = "b",
+        ["Suspend"] = "s",
+        ["Forget"] = "f"
+    };
+
 }

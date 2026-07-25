@@ -51,13 +51,13 @@ public static class ThemePresets
     public static IReadOnlyDictionary<KnownState, WordStyleState> Monochrome { get; } =
         new Dictionary<KnownState, WordStyleState>
         {
-            [KnownState.New] = new() { TextColor = "#ffffff", OutlineColor = "#000000", OutlineSize = 3, Bold = true },
-            [KnownState.Young] = new() { TextColor = "#dddddd", OutlineColor = "#000000", OutlineSize = 3, Underline = true },
-            [KnownState.Mature] = new() { TextColor = "#bbbbbb", OutlineColor = "#000000", OutlineSize = 3 },
-            [KnownState.Blacklisted] = new() { TextColor = "#777777", OutlineColor = "#000000", OutlineSize = 3, TextOpacity = 80, Strikethrough = true },
-            [KnownState.Due] = new() { TextColor = "#ffffff", OutlineColor = "#333333", OutlineSize = 3, Italic = true },
-            [KnownState.Mastered] = new() { TextColor = "#999999", OutlineColor = "#000000", OutlineSize = 3, TextOpacity = 160 },
-            [KnownState.Redundant] = new() { TextColor = "#777777", OutlineColor = "#000000", OutlineSize = 3, TextOpacity = 80 }
+            [KnownState.New] = new() { TextColor = "#cccccc", OutlineColor = "#000000", OutlineSize = 3 },
+            [KnownState.Young] = new() { TextColor = "#999999", OutlineColor = "#000000", OutlineSize = 3 },
+            [KnownState.Mature] = new() { TextColor = "#666666", OutlineColor = "#000000", OutlineSize = 3 },
+            [KnownState.Blacklisted] = new() { TextColor = "#eeeeee", OutlineColor = "#000000", OutlineSize = 3, TextOpacity = 102 },
+            [KnownState.Due] = new() { TextColor = "#ffffff", OutlineColor = "#000000", OutlineSize = 3, Underline = true },
+            [KnownState.Mastered] = new() { TextColor = "#eeeeee", OutlineColor = "#000000", OutlineSize = 3 },
+            [KnownState.Redundant] = new() { TextColor = "#eeeeee", OutlineColor = "#000000", OutlineSize = 3, TextOpacity = 102 }
         };
 
     public static IReadOnlyDictionary<KnownState, WordStyleState> Subtle { get; } =
@@ -75,13 +75,13 @@ public static class ThemePresets
     public static IReadOnlyDictionary<KnownState, WordStyleState> UnderlineTheme { get; } =
         new Dictionary<KnownState, WordStyleState>
         {
-            [KnownState.New] = new() { TextColor = "#ffffff", OutlineColor = "#000000", OutlineSize = 3, Underline = true, ShadowColor = "#4b8dff", ShadowDepth = 1 },
-            [KnownState.Young] = new() { TextColor = "#ffffff", OutlineColor = "#000000", OutlineSize = 3, Underline = true, ShadowColor = "#55b87a", ShadowDepth = 1 },
-            [KnownState.Mature] = new() { TextColor = "#ffffff", OutlineColor = "#000000", OutlineSize = 3 },
-            [KnownState.Blacklisted] = new() { TextColor = "#bbbbbb", OutlineColor = "#000000", OutlineSize = 3, TextOpacity = 150 },
-            [KnownState.Due] = new() { TextColor = "#ffffff", OutlineColor = "#000000", OutlineSize = 3, Underline = true, ShadowColor = "#d08700", ShadowDepth = 1 },
-            [KnownState.Mastered] = new() { TextColor = "#dddddd", OutlineColor = "#000000", OutlineSize = 3 },
-            [KnownState.Redundant] = new() { TextColor = "#bbbbbb", OutlineColor = "#000000", OutlineSize = 3, TextOpacity = 150 }
+            [KnownState.New] = new() { TextColor = "#eeeeee", OutlineColor = "#000000", OutlineSize = 3, Underline = true, ShadowColor = "#a566ef", ShadowDepth = 2 },
+            [KnownState.Young] = new() { TextColor = "#eeeeee", OutlineColor = "#000000", OutlineSize = 3, Underline = true, ShadowColor = "#e8a020", ShadowDepth = 2 },
+            [KnownState.Mature] = new() { TextColor = "#eeeeee", OutlineColor = "#000000", OutlineSize = 3 },
+            [KnownState.Blacklisted] = new() { TextColor = "#eeeeee", OutlineColor = "#000000", OutlineSize = 3 },
+            [KnownState.Due] = new() { TextColor = "#eeeeee", OutlineColor = "#000000", OutlineSize = 3, Underline = true, ShadowColor = "#e03030", ShadowDepth = 2 },
+            [KnownState.Mastered] = new() { TextColor = "#eeeeee", OutlineColor = "#000000", OutlineSize = 3 },
+            [KnownState.Redundant] = new() { TextColor = "#eeeeee", OutlineColor = "#000000", OutlineSize = 3 }
         };
 
     public static IReadOnlyDictionary<KnownState, WordStyleState> ToyBox { get; } =

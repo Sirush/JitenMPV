@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text;
 using JitenMPV.Core.Cache;
 using JitenMPV.Core.Config;
@@ -8,42 +9,78 @@ namespace JitenMPV.Core.Rendering;
 
 public sealed class OverlayRenderer
 {
-    private static readonly WordStyleState BlurRevealStyle = new() { Blur = 0 };
+    private static readonly WordStyleState UnparsedBlurReset = StyleResolver.BlurOffStyle.MergeOver(ThemePresets.Unparsed);
 
-    private readonly PluginSettings _settings;
     private readonly StyleResolver _styleResolver;
     private readonly OsdState _osd;
-    private string _preamble;
+    private volatile RenderSnapshot _snap;
+
+    private sealed record RenderSnapshot(PluginSettings Settings, string Preamble);
 
     public OverlayRenderer(PluginSettings settings, StyleResolver styleResolver, OsdState osd)
     {
-        _settings = settings;
         _styleResolver = styleResolver;
         _osd = osd;
-        _preamble = BuildPreamble(settings, 1280f);
+        _snap = new RenderSnapshot(settings, BuildPreamble(settings, 1280f));
     }
 
     public const int OverlayResY = 720;
     public const float ResY = OverlayResY;
 
+    public static int ClampAlign(int alignment) => Math.Clamp(alignment, 1, 9);
+
     public static float ComputeResX(int osdWidth, int osdHeight)
         => osdHeight > 0 ? ResY * osdWidth / osdHeight : 1280f;
 
     public static string BuildStyleTags(PluginSettings settings)
-        => $@"\fs{settings.FontSize}\fn{settings.FontFamily}\bord{settings.BorderSize}";
+        => $@"\fs{settings.FontSize}\fn{settings.FontFamily}\bord{settings.BorderSize.ToString(CultureInfo.InvariantCulture)}";
 
-    public static string BuildPositionTags(float resX, PluginSettings settings)
+    public static (float X, float Y) ComputePosition(int alignment, int marginX, int marginY, float resX)
     {
-        float centerX = resX / 2;
-        float posY = ResY - settings.BottomMargin;
-        return $@"\pos({centerX:F0},{posY:F0})";
+        float x = (alignment % 3) switch
+        {
+            1 => marginX,
+            2 => resX / 2,
+            0 => resX - marginX,
+            _ => resX / 2
+        };
+
+        float y = alignment switch
+        {
+            >= 7 => marginY,
+            >= 4 => ResY / 2,
+            _ => ResY - marginY
+        };
+
+        return (x, y);
     }
 
-    public void RebuildPreamble() => _preamble = BuildPreamble(_settings, ComputeResX(_osd.Width, _osd.Height));
+    public static string BuildPositionTags(float resX, PluginSettings settings)
+        => BuildPositionTags(resX, settings, ClampAlign(settings.SubtitleAlignment));
+
+    public static string BuildPositionTags(float resX, PluginSettings settings, int align)
+    {
+        var (posX, posY) = ComputePosition(align, settings.SubtitleMarginX, settings.SubtitleMarginY, resX);
+        return $@"\pos({posX:F0},{posY:F0})";
+    }
+
+    public void RebuildPreamble()
+    {
+        var s = _snap.Settings;
+        _snap = new RenderSnapshot(s, BuildPreamble(s, ComputeResX(_osd.Width, _osd.Height)));
+    }
+
+    public void UpdateSettings(PluginSettings newSettings)
+    {
+        var preamble = BuildPreamble(newSettings, ComputeResX(_osd.Width, _osd.Height));
+        _snap = new RenderSnapshot(newSettings, preamble);
+    }
 
     private static string BuildPreamble(PluginSettings settings, float resX)
-        => $@"{{\an2{BuildPositionTags(resX, settings)}{BuildStyleTags(settings)}}}";
-
+    {
+        int align = ClampAlign(settings.SubtitleAlignment);
+        return $@"{{\an{align}{BuildPositionTags(resX, settings, align)}{BuildStyleTags(settings)}}}";
+    }
 
     public string RenderSubtitle(
         string originalText,
@@ -52,15 +89,18 @@ public sealed class OverlayRenderer
         HashSet<(int WordId, byte ReadingIndex)>? frequencyWords = null,
         HashSet<(int WordId, byte ReadingIndex)>? revealedWords = null)
     {
+        var snap = _snap;
         var sb = new StringBuilder();
-        sb.Append(_preamble);
+        sb.Append(snap.Preamble);
+
+        var unparsed = snap.Settings.BlurEnabled ? UnparsedBlurReset : ThemePresets.Unparsed;
 
         int lastEnd = 0;
         foreach (var token in entry.Tokens)
         {
             if (token.Start > lastEnd)
             {
-                AssTagBuilder.AppendStyle(sb, ThemePresets.Unparsed);
+                AssTagBuilder.AppendStyle(sb, unparsed);
                 AssTagBuilder.AppendEscapedText(sb, originalText, lastEnd, token.Start - lastEnd);
             }
 
@@ -68,7 +108,7 @@ public sealed class OverlayRenderer
             if (revealedWords is not null && style.Blur is > 0
                 && revealedWords.Contains((token.WordId, token.ReadingIndex)))
             {
-                style = BlurRevealStyle.MergeOver(style);
+                style = StyleResolver.BlurOffStyle.MergeOver(style);
             }
 
             AssTagBuilder.AppendStyle(sb, style);
@@ -79,7 +119,7 @@ public sealed class OverlayRenderer
 
         if (lastEnd < originalText.Length)
         {
-            AssTagBuilder.AppendStyle(sb, ThemePresets.Unparsed);
+            AssTagBuilder.AppendStyle(sb, unparsed);
             AssTagBuilder.AppendEscapedText(sb, originalText, lastEnd, originalText.Length - lastEnd);
         }
 
@@ -89,7 +129,7 @@ public sealed class OverlayRenderer
     public string RenderPlain(string text)
     {
         var sb = new StringBuilder();
-        sb.Append(_preamble);
+        sb.Append(_snap.Preamble);
         AssTagBuilder.AppendStyle(sb, ThemePresets.Unparsed);
         AssTagBuilder.AppendEscapedText(sb, text, 0, text.Length);
         return sb.ToString();

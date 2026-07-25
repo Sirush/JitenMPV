@@ -20,12 +20,11 @@ public sealed class MpvIpcClient(string pipePath, ILogger logger) : IAsyncDispos
     public event Action<string?>? SubtitleTextChanged;
     public event Action<MouseEventArgs>? MouseEvent;
     public event Action<string, JsonElement>? PropertyChanged;
-
-    private readonly string _pipePath = pipePath;
+    public event Action<string, string[]>? ScriptMessageReceived;
 
     public async Task ConnectAsync(CancellationToken ct)
     {
-        await _connection.ConnectAsync(_pipePath, ct);
+        await _connection.ConnectAsync(pipePath, ct);
     }
 
     private Task<JsonElement?> SendCommandAsync(object[] command, CancellationToken ct)
@@ -73,6 +72,12 @@ public sealed class MpvIpcClient(string pipePath, ILogger logger) : IAsyncDispos
 
     public Task<JsonElement?> GetPropertyRawAsync(string propertyName, CancellationToken ct)
         => SendCommandAsync(["get_property", propertyName], ct);
+
+    public async Task<string?> GetClientNameAsync(CancellationToken ct)
+    {
+        var result = await SendCommandAsync(["client_name"], ct);
+        return result?.GetString();
+    }
 
     public Task ShowOverlayAsync(int id, string assText, CancellationToken ct)
         => SendNamedCommandAsync(new JsonObject
@@ -144,6 +149,10 @@ public sealed class MpvIpcClient(string pipePath, ILogger logger) : IAsyncDispos
             {
                 logger.LogWarning("Failed to parse mpv message: {Error}", ex.Message);
             }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                logger.LogWarning(ex, "Error handling mpv message");
+            }
         }
 
         foreach (var tcs in _pending.Values)
@@ -200,23 +209,43 @@ public sealed class MpvIpcClient(string pipePath, ILogger logger) : IAsyncDispos
         if (argsLen < 1) return;
 
         var messageName = argsEl[0].GetString();
-        if (messageName is null || !MouseEventMap.TryGetValue(messageName, out var eventType))
-            return;
+        if (messageName is null) return;
 
-        if (eventType == MouseEventType.Leave)
+        if (MouseEventMap.TryGetValue(messageName, out var eventType))
         {
-            MouseEvent?.Invoke(new MouseEventArgs(eventType, 0, 0));
+            if (eventType == MouseEventType.Leave)
+            {
+                MouseEvent?.Invoke(new MouseEventArgs(eventType, 0, 0));
+                return;
+            }
+
+            if (argsLen >= 3
+                && double.TryParse(argsEl[1].GetString(), out var x)
+                && double.TryParse(argsEl[2].GetString(), out var y))
+            {
+                MouseEvent?.Invoke(new MouseEventArgs(eventType, x, y));
+            }
             return;
         }
 
-        if (argsLen < 3) return;
-
-        if (!double.TryParse(argsEl[1].GetString(), out var x) ||
-            !double.TryParse(argsEl[2].GetString(), out var y))
-            return;
-
-        MouseEvent?.Invoke(new MouseEventArgs(eventType, x, y));
+        if (ScriptMessageReceived is null) return;
+        var args = new string[argsLen - 1];
+        for (int i = 1; i < argsLen; i++)
+            args[i - 1] = argsEl[i].GetString() ?? "";
+        ScriptMessageReceived.Invoke(messageName, args);
     }
+
+    public Task SendScriptMessageAsync(string target, string message, CancellationToken ct)
+        => SendCommandAsync(["script-message-to", target, message], ct);
+
+    public Task SendScriptMessageAsync(string target, string message, string value, CancellationToken ct)
+        => SendCommandAsync(["script-message-to", target, message, value], ct);
+
+    public Task SendScriptMessageAsync(string target, string message, string arg1, string arg2, CancellationToken ct)
+        => SendCommandAsync(["script-message-to", target, message, arg1, arg2], ct);
+
+    public Task KeybindAsync(string key, string command, CancellationToken ct)
+        => SendCommandAsync(["keybind", key, command], ct);
 
     public async ValueTask DisposeAsync()
     {

@@ -13,8 +13,10 @@ internal static class TaskHelper
 
     public static void CancelAndDispose(ref CancellationTokenSource? cts)
     {
-        cts?.Cancel();
-        cts?.Dispose();
+        var local = cts;
         cts = null;
+        if (local is null) return;
+        try { local.Cancel(); } catch (ObjectDisposedException) { }
+        local.Dispose();
     }
 }
