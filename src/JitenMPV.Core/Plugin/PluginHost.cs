@@ -6,6 +6,7 @@ using JitenMPV.Core.Config;
 using JitenMPV.Core.Interaction;
 using JitenMPV.Core.Mpv;
 using JitenMPV.Core.Rendering;
+using JitenMPV.Core.Pitch;
 using JitenMPV.Core.Theming;
 using Microsoft.Extensions.Logging;
 
@@ -14,6 +15,7 @@ namespace JitenMPV.Core.Plugin;
 public sealed class PluginHost(string pipePath, ILogger logger, IPopupPresenter popupPresenter)
 {
     internal const int SubtitleOverlayId = 1;
+    internal const int PitchUnderlineOverlayId = 2;
     internal const string OpenSettingsMessage = "jiten-open-settings";
 
     private CancellationTokenSource? _currentSubtitleCts;
@@ -71,7 +73,8 @@ public sealed class PluginHost(string pipePath, ILogger logger, IPopupPresenter 
             newSettings.IPlusOneEnabled ? ThemePresets.IPlusOne : null,
             newSettings.FrequencyMarkingEnabled ? ThemePresets.Frequency : null,
             StyleResolver.BuildBlurStates(newSettings),
-            newSettings.BlurStrength);
+            newSettings.BlurStrength,
+            PitchStyleBuilder.Build(newSettings));
 
         _renderer.UpdateSettings(newSettings);
         _popupDataBuilder?.UpdateSettings(newSettings);
@@ -114,6 +117,7 @@ public sealed class PluginHost(string pipePath, ILogger logger, IPopupPresenter 
                         var layout = await measurer.MeasureAsync(text, entry, ipc, CancellationToken.None);
                         if (_currentSubtitleText != text) return;
                         interaction.UpdateLayout(layout);
+                        await RenderPitchUnderlinesAsync(entry, layout, ipc, CancellationToken.None);
                     }
                 }, logger, "Re-render subtitle after settings change");
             }
@@ -144,6 +148,24 @@ public sealed class PluginHost(string pipePath, ILogger logger, IPopupPresenter 
                 theme[state] = fallback;
         }
         return theme;
+    }
+
+    private async Task RenderPitchUnderlinesAsync(
+        ParseCacheEntry? entry, IReadOnlyList<WordRect> layout,
+        MpvIpcClient ipc, CancellationToken ct)
+    {
+        var settings = _settings;
+        if (settings is null) return;
+
+        var colors = PitchStyleBuilder.BuildUnderlineColors(settings);
+        var ass = entry is not null && colors.Count > 0
+            ? PitchUnderlineRenderer.Render(layout, entry.PitchClasses, colors, settings.PitchUnderlineThickness)
+            : string.Empty;
+
+        if (ass.Length == 0)
+            await ipc.RemoveOverlayAsync(PitchUnderlineOverlayId, ct);
+        else
+            await ipc.ShowOverlayAsync(PitchUnderlineOverlayId, ass, ct);
     }
 
     private static (IPlusOneDetector?, FrequencyMarker?) BuildDetectors(PluginSettings settings)
@@ -183,7 +205,8 @@ public sealed class PluginHost(string pipePath, ILogger logger, IPopupPresenter 
             settings.IPlusOneEnabled ? ThemePresets.IPlusOne : null,
             settings.FrequencyMarkingEnabled ? ThemePresets.Frequency : null,
             StyleResolver.BuildBlurStates(settings),
-            settings.BlurStrength);
+            settings.BlurStrength,
+            PitchStyleBuilder.Build(settings));
         _styleResolver = styleResolver;
 
         var osd = new OsdState();
@@ -377,6 +400,7 @@ public sealed class PluginHost(string pipePath, ILogger logger, IPopupPresenter 
             {
                 await interaction.OnSubtitleRenderedAsync(null, null, [], ct);
                 await ipcClient.RemoveOverlayAsync(SubtitleOverlayId, ct);
+                await ipcClient.RemoveOverlayAsync(PitchUnderlineOverlayId, ct);
                 return;
             }
 
@@ -390,6 +414,7 @@ public sealed class PluginHost(string pipePath, ILogger logger, IPopupPresenter 
             await Task.WhenAll(showTask, measureTask);
             var layout = measureTask.Result;
 
+            await RenderPitchUnderlinesAsync(entry, layout, ipcClient, ct);
             await interaction.OnSubtitleRenderedAsync(text, entry, layout, ct);
         }
         catch (OperationCanceledException) { }

@@ -253,6 +253,55 @@
             <Border Classes="divider" />
 
             <StackPanel Spacing="8">
+              <TextBlock Text="PITCH ACCENT COLOURS" Classes="section-header" />
+              <StackPanel Orientation="Horizontal" Spacing="8">
+                <ToggleSwitch IsChecked="{Binding PitchColoringEnabled}" />
+                <TextBlock Text="Colour words by pitch pattern" FontSize="14"
+                           VerticalAlignment="Center" Foreground="#ffffff" />
+              </StackPanel>
+              <TextBlock Text="Replaces the word's knowledge-state colour. Outlines, i+1 and frequency marks are kept."
+                         FontSize="12" Foreground="#71717a" TextWrapping="Wrap" />
+
+              <StackPanel IsVisible="{Binding PitchColoringEnabled}" Spacing="6" Margin="0,4,0,0">
+                <TextBlock Text="Show the pitch as" Foreground="#a1a1aa" FontSize="13" FontWeight="Medium" />
+                <StackPanel Orientation="Horizontal" Spacing="16">
+                  <RadioButton GroupName="PitchIndicator" Content="Text colour"
+                               IsChecked="{Binding PitchIndicator, Converter={StaticResource ParseEquals}, ConverterParameter=Text}" />
+                  <RadioButton GroupName="PitchIndicator" Content="Underline"
+                               IsChecked="{Binding PitchIndicator, Converter={StaticResource ParseEquals}, ConverterParameter=Underline}" />
+                </StackPanel>
+                <TextBlock FontSize="12" Foreground="#71717a" TextWrapping="Wrap"
+                           Text="Text colour replaces the word's colour. Underline keeps it and draws a coloured bar underneath."
+                           Margin="0,0,0,4" />
+                <StackPanel IsVisible="{Binding IsPitchUnderline}" Spacing="4" Margin="0,0,0,4">
+                  <TextBlock Text="Underline thickness" Foreground="#a1a1aa" FontSize="13" FontWeight="Medium" />
+                  <StackPanel Orientation="Horizontal" Spacing="8">
+                    <Slider Value="{Binding PitchUnderlineThickness}" Minimum="1" Maximum="16" Width="250" />
+                    <TextBlock Text="{Binding PitchUnderlineThickness, StringFormat='{}{0:F0}px'}"
+                               VerticalAlignment="Center" Width="50" Foreground="#ffffff" />
+                  </StackPanel>
+                </StackPanel>
+                <ItemsControl ItemsSource="{Binding PitchStyles}">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:PitchStyleViewModel">
+                      <Grid ColumnDefinitions="110,Auto" Margin="0,0,0,6">
+                        <TextBlock Text="{Binding Name}" VerticalAlignment="Center"
+                                   Foreground="#a1a1aa" FontSize="13" />
+                        <ColorPicker Grid.Column="1" IsAlphaVisible="False"
+                                     HorizontalAlignment="Left"
+                                     Color="{Binding Color, Converter={StaticResource HexToColor}}" />
+                      </Grid>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <Button Content="Reset to default colours" Command="{Binding ResetPitchColorsCommand}"
+                        HorizontalAlignment="Left" />
+              </StackPanel>
+            </StackPanel>
+
+            <Border Classes="divider" />
+
+            <StackPanel Spacing="8">
               <TextBlock Text="FONT" Classes="section-header" />
               <Grid ColumnDefinitions="80,*" RowDefinitions="Auto,Auto,Auto" RowSpacing="8">
                 <TextBlock Text="Family" VerticalAlignment="Center" Foreground="#a1a1aa" />
@@ -573,6 +622,10 @@
                 <CheckBox Content="Blacklist" IsChecked="{Binding PopupShowBlacklist}" />
                 <CheckBox Content="Suspend" IsChecked="{Binding PopupShowSuspend}" />
                 <CheckBox Content="Forget" IsChecked="{Binding PopupShowForget}" />
+              </StackPanel>
+              <StackPanel IsVisible="{Binding PopupShowPitch}" Margin="24,0,0,0">
+                <CheckBox Content="Draw pitch accent diagrams instead of numbers"
+                          IsChecked="{Binding PopupPitchDiagram}" />
               </StackPanel>
               <CheckBox Content="Show which lists and decks the word is in"
                         IsChecked="{Binding PopupShowDeckMembership}" />

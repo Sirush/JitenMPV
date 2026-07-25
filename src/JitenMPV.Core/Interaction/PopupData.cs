@@ -1,5 +1,6 @@
 using JitenMPV.Core.Api.Models;
 using JitenMPV.Core.Config;
+using JitenMPV.Core.Pitch;
 
 namespace JitenMPV.Core.Interaction;
 
@@ -10,6 +11,8 @@ public sealed record PopupData
     public int FrequencyRank { get; init; }
     public required IReadOnlyList<string> PartsOfSpeech { get; init; }
     public required IReadOnlyList<int> PitchAccents { get; init; }
+    /// One diagram per accepted accent; empty when diagrams are off or the reading has no kana.
+    public IReadOnlyList<PitchDiagramRow> PitchDiagrams { get; init; } = [];
     public required IReadOnlyList<IReadOnlyList<string>> MeaningsChunks { get; init; }
     public required IReadOnlyList<string> Conjugations { get; init; }
     public KnownState State { get; init; }
@@ -48,3 +51,7 @@ public sealed record PopupData
 }
 
 public sealed record DeckOption(int DeckId, string Name);
+
+/// Carries the colour alongside the shape so the diagram tracks any recoloured pitch classes
+/// rather than drifting from the subtitle colouring.
+public sealed record PitchDiagramRow(PitchDiagram Diagram, string Color);

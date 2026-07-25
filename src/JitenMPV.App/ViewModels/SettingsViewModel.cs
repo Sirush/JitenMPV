@@ -9,12 +9,19 @@ using CommunityToolkit.Mvvm.Input;
 using JitenMPV.Core.Api;
 using JitenMPV.Core.Api.Models;
 using JitenMPV.Core.Config;
+using JitenMPV.Core.Pitch;
 using JitenMPV.Core.Theming;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace JitenMPV.App.ViewModels;
 
 public sealed record StudyDeckOption(int DeckId, string Name);
+
+public partial class PitchStyleViewModel(PitchClass pitchClass, string color) : ViewModelBase
+{
+    public string Name { get; } = pitchClass.ToString();
+    [ObservableProperty] private string _color = color;
+}
 
 public partial class SettingsViewModel : ViewModelBase
 {
@@ -62,6 +69,7 @@ public partial class SettingsViewModel : ViewModelBase
     [ObservableProperty] private string _popupBgColor = "";
     [ObservableProperty] private int _popupMaxMeanings;
     [ObservableProperty] private bool _popupShowPitch;
+    [ObservableProperty] private bool _popupPitchDiagram;
     [ObservableProperty] private bool _popupShowFrequency;
     [ObservableProperty] private bool _popupShowConjugation;
     [ObservableProperty] private bool _popupShowStateActions;
@@ -119,6 +127,31 @@ public partial class SettingsViewModel : ViewModelBase
         DoubleClickAction.None, DoubleClickAction.Master, DoubleClickAction.Mine
     ];
 
+    [ObservableProperty] private bool _pitchColoringEnabled;
+    [ObservableProperty] private PitchIndicatorMode _pitchIndicator;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsPitchUnderline))]
+    private double _pitchUnderlineThickness;
+
+    public bool IsPitchUnderline => PitchIndicator == PitchIndicatorMode.Underline;
+
+    partial void OnPitchIndicatorChanged(PitchIndicatorMode value) => OnPropertyChanged(nameof(IsPitchUnderline));
+    public ObservableCollection<PitchStyleViewModel> PitchStyles { get; } = [];
+
+    private void InitPitchStyles(Dictionary<string, CustomStateStyle>? stored)
+    {
+        PitchStyles.Clear();
+        foreach (var pitchClass in PitchAccent.Styleable)
+        {
+            var color = stored?.GetValueOrDefault(pitchClass.ToString())?.TextColor
+                        ?? PitchAccent.DefaultColor(pitchClass);
+            PitchStyles.Add(new PitchStyleViewModel(pitchClass, color));
+        }
+    }
+
+    [RelayCommand]
+    private void ResetPitchColors() => InitPitchStyles(null);
+
     public ObservableCollection<StateStyleViewModel> CustomStateStyles { get; } = [];
     private string _previousTheme = "Default";
 
@@ -174,6 +207,11 @@ public partial class SettingsViewModel : ViewModelBase
         PopupBgColor = s.PopupBgColor;
         PopupMaxMeanings = s.PopupMaxMeanings;
         PopupShowPitch = s.PopupShowPitch;
+        PopupPitchDiagram = s.PopupPitchDiagram;
+        PitchColoringEnabled = s.PitchColoringEnabled;
+        PitchIndicator = s.PitchIndicator;
+        PitchUnderlineThickness = s.PitchUnderlineThickness;
+        InitPitchStyles(s.PitchStyles);
         PopupShowFrequency = s.PopupShowFrequency;
         PopupShowConjugation = s.PopupShowConjugation;
         PopupShowStateActions = s.PopupShowStateActions;
@@ -278,6 +316,11 @@ public partial class SettingsViewModel : ViewModelBase
             PopupBgColor = PopupBgColor,
             PopupMaxMeanings = PopupMaxMeanings,
             PopupShowPitch = PopupShowPitch,
+            PopupPitchDiagram = PopupPitchDiagram,
+            PitchColoringEnabled = PitchColoringEnabled,
+            PitchIndicator = PitchIndicator,
+            PitchUnderlineThickness = PitchUnderlineThickness,
+            PitchStyles = PitchStyles.ToDictionary(p => p.Name, p => new CustomStateStyle { TextColor = p.Color }),
             PopupShowFrequency = PopupShowFrequency,
             PopupShowConjugation = PopupShowConjugation,
             PopupShowStateActions = PopupShowStateActions,
@@ -503,6 +546,7 @@ public partial class SettingsViewModel : ViewModelBase
                 PopupBgColor = defaults.PopupBgColor;
                 PopupMaxMeanings = defaults.PopupMaxMeanings;
                 PopupShowPitch = defaults.PopupShowPitch;
+                PopupPitchDiagram = defaults.PopupPitchDiagram;
                 PopupShowFrequency = defaults.PopupShowFrequency;
                 PopupShowConjugation = defaults.PopupShowConjugation;
                 PopupShowStateActions = defaults.PopupShowStateActions;

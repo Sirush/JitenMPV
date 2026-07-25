@@ -85,6 +85,10 @@ public sealed class PluginSettings
     [JsonPropertyName("popup_show_pitch")]
     public bool PopupShowPitch { get; set; } = true;
 
+    /// Draws mora/contour diagrams instead of the raw accent numbers. Nested under PopupShowPitch.
+    [JsonPropertyName("popup_pitch_diagram")]
+    public bool PopupPitchDiagram { get; set; } = true;
+
     [JsonPropertyName("popup_show_frequency")]
     public bool PopupShowFrequency { get; set; } = true;
 
@@ -183,6 +187,21 @@ public sealed class PluginSettings
 
     [JsonPropertyName("mouse_zone_percent")]
     public int MouseZonePercent { get; set; } = 65;
+
+    /// Colours subtitle words by pitch class instead of leaving the SRS colour alone.
+    [JsonPropertyName("pitch_coloring_enabled")]
+    public bool PitchColoringEnabled { get; set; }
+
+    [JsonPropertyName("pitch_indicator")]
+    public PitchIndicatorMode PitchIndicator { get; set; } = PitchIndicatorMode.Text;
+
+    /// Bar thickness for underline mode, in the 720-high overlay space the subtitle is laid out in.
+    [JsonPropertyName("pitch_underline_thickness")]
+    public double PitchUnderlineThickness { get; set; } = 4;
+
+    /// Keyed by PitchClass name; absent entries fall back to PitchAccent.DefaultColor.
+    [JsonPropertyName("pitch_styles")]
+    public Dictionary<string, CustomStateStyle>? PitchStyles { get; set; }
 
     [JsonPropertyName("custom_theme_colors")]
     public Dictionary<string, CustomStateStyle>? CustomThemeColors { get; set; }

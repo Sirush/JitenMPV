@@ -104,7 +104,8 @@ public sealed class OverlayRenderer
                 AssTagBuilder.AppendEscapedText(sb, originalText, lastEnd, token.Start - lastEnd);
             }
 
-            var style = _styleResolver.Resolve(token, entry.VocabStates, iPlusOneWords, frequencyWords);
+            var style = _styleResolver.Resolve(
+                token, entry.VocabStates, iPlusOneWords, frequencyWords, entry.PitchClasses);
             if (revealedWords is not null && style.Blur is > 0
                 && revealedWords.Contains((token.WordId, token.ReadingIndex)))
             {

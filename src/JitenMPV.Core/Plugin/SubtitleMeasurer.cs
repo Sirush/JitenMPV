@@ -92,9 +92,7 @@ public sealed class SubtitleMeasurer(PluginSettings settings, OsdState osd)
             var lineCentered = await lineCenteredTask;
             if (lineBounds is null || lineBounds.X1 <= 0 || lineCentered is null) continue;
 
-            float totalX1 = (float)lineBounds.X1;
             float visibleLeft = (float)lineCentered.X0;
-            float visibleWidth = (float)lineCentered.Width;
             float lineY = (float)(fullBounds.Y0 + li * lineHeight);
 
             var positions = new SortedSet<int>();
@@ -118,12 +116,11 @@ public sealed class SubtitleMeasurer(PluginSettings settings, OsdState osd)
 
             await Task.WhenAll(prefixTasks.Values);
 
-            var advances = new Dictionary<int, float> { [0] = 0 };
+            var prefixBounds = new Dictionary<int, OverlayBounds?>();
             foreach (var pos in prefixPositions)
-            {
-                var bounds = await prefixTasks[pos];
-                advances[pos] = bounds is not null ? (float)(bounds.X1 / totalX1) * visibleWidth : 0;
-            }
+                prefixBounds[pos] = await prefixTasks[pos];
+
+            var advances = BuildAdvances(prefixBounds, (float)s.BorderSize);
 
             foreach (var (idx, token) in lineTokens)
             {
@@ -142,6 +139,20 @@ public sealed class SubtitleMeasurer(PluginSettings settings, OsdState osd)
             Enumerable.Range(MeasureId, maxOverlayId - MeasureId + 1)
                 .Select(id => ipc.RemoveOverlayAsync(id, ct)));
         return rects;
+    }
+
+    /// Maps each prefix's measured ink right edge to an offset from the centred line's ink left
+    /// edge. Both measurements carry one outline width — the prefix's ink ends one outline past
+    /// its pen, the centred line's ink starts one outline before its text — so adding them cancels
+    /// the outline and the pen position carries across unscaled. Scaling the prefix by the line's
+    /// ink width instead counts the outline twice, which widens the run and drifts it right.
+    internal static Dictionary<int, float> BuildAdvances(
+        IReadOnlyDictionary<int, OverlayBounds?> prefixBounds, float border)
+    {
+        var advances = new Dictionary<int, float> { [0] = border };
+        foreach (var (pos, bounds) in prefixBounds)
+            advances[pos] = bounds is not null ? (float)bounds.X1 : border;
+        return advances;
     }
 
     private static List<(string Text, int StartIdx)> SplitLines(string text)

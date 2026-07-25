@@ -1,5 +1,6 @@
 using JitenMPV.Core.Api.Models;
 using JitenMPV.Core.Config;
+using JitenMPV.Core.Pitch;
 
 namespace JitenMPV.Core.Interaction;
 
@@ -8,6 +9,20 @@ public sealed class PopupDataBuilder(PluginSettings settings, MiningService mini
     private volatile PluginSettings _settings = settings;
 
     public void UpdateSettings(PluginSettings newSettings) => _settings = newSettings;
+
+    private static IReadOnlyList<PitchDiagramRow> BuildDiagrams(ReaderWord word, PluginSettings settings)
+    {
+        List<PitchDiagramRow> rows = [];
+        foreach (var accent in word.PitchAccents)
+        {
+            if (PitchAccent.BuildDiagram(word.Reading, accent) is not { } diagram) continue;
+
+            var color = settings.PitchStyles?.GetValueOrDefault(diagram.Class.ToString())?.TextColor
+                        ?? PitchAccent.DefaultColor(diagram.Class);
+            rows.Add(new PitchDiagramRow(diagram, color));
+        }
+        return rows;
+    }
 
     public PopupData Build(ReaderWord word, ReaderToken token, KnownState? stateOverride = null)
     {
@@ -30,6 +45,9 @@ public sealed class PopupDataBuilder(PluginSettings settings, MiningService mini
             FrequencyRank = settings.PopupShowFrequency ? word.FrequencyRank : 0,
             PartsOfSpeech = word.PartsOfSpeech,
             PitchAccents = settings.PopupShowPitch ? word.PitchAccents : [],
+            PitchDiagrams = settings.PopupShowPitch && settings.PopupPitchDiagram
+                ? BuildDiagrams(word, settings)
+                : [],
             MeaningsChunks = word.MeaningsChunks.Count > settings.PopupMaxMeanings
                 ? word.MeaningsChunks.Take(settings.PopupMaxMeanings).ToList()
                 : word.MeaningsChunks,

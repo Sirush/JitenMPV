@@ -68,6 +68,8 @@ public sealed class WordStyleState
         };
     }
 
+    public static string ToAssBgr(string hexRgb) => RgbToBgr(hexRgb);
+
     internal static string RgbToBgr(string hexRgb)
     {
         var hex = NormalizeHex(hexRgb);

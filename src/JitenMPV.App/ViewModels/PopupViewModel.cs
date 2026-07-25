@@ -51,6 +51,8 @@ public partial class PopupViewModel : ViewModelBase
     [ObservableProperty] private bool _showFrequency;
     [ObservableProperty] private bool _showPartsOfSpeech;
     [ObservableProperty] private bool _showPitch;
+    [ObservableProperty] private bool _showPitchDiagrams;
+    [ObservableProperty] private List<PitchDiagramRow> _pitchDiagrams = [];
     [ObservableProperty] private bool _showConjugation;
 
     [ObservableProperty] private bool _showNeverForget;
@@ -133,7 +135,10 @@ public partial class PopupViewModel : ViewModelBase
         ShowPartsOfSpeech = data.PartsOfSpeech.Count > 0;
         PartsOfSpeech = ShowPartsOfSpeech ? string.Join(", ", data.PartsOfSpeech) : "";
 
-        ShowPitch = data.PitchAccents.Count > 0;
+        PitchDiagrams = [..data.PitchDiagrams];
+        ShowPitchDiagrams = PitchDiagrams.Count > 0;
+        // The numeric line is the fallback when diagrams are off or the reading yielded none.
+        ShowPitch = !ShowPitchDiagrams && data.PitchAccents.Count > 0;
         PitchAccents = ShowPitch ? string.Join(", ", data.PitchAccents) : "";
 
         Meanings = data.MeaningsChunks

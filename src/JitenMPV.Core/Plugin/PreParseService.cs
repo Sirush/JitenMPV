@@ -209,11 +209,13 @@ public sealed class PreParseService(JitenApiClient api, ParseCache cache, ILogge
             try
             {
                 var response = await api.ParseBatchAsync(batch, ct);
-                var (sharedVocab, sharedFreqs, sharedDetails) = ParseCacheEntry.BuildVocabData(response);
+                var (sharedVocab, sharedFreqs, sharedDetails, sharedPitch) =
+                    ParseCacheEntry.BuildVocabData(response);
 
                 for (int j = 0; j < batch.Length && j < response.Tokens.Count; j++)
                 {
-                    var entry = ParseCacheEntry.FromTokens(response.Tokens[j], sharedVocab, sharedFreqs, sharedDetails);
+                    var entry = ParseCacheEntry.FromTokens(
+                        response.Tokens[j], sharedVocab, sharedFreqs, sharedDetails, sharedPitch);
                     cache.Set(batch[j], entry);
                 }
 
