@@ -20,6 +20,7 @@ public sealed class InteractionHandler : IDisposable
     private readonly AutopauseService _autopause;
     private readonly WordActionService _wordAction;
     private readonly InlineReviewService _review;
+    private readonly MiningService _mining;
     private readonly SubtitleColorizer _colorizer;
     private volatile PluginSettings _settings;
     private readonly ILogger _logger;
@@ -38,7 +39,7 @@ public sealed class InteractionHandler : IDisposable
     public InteractionHandler(
         MpvIpcClient ipc, HitTestService hitTest,
         BlurHoverManager blur, PopupManager popup, AutopauseService autopause,
-        WordActionService wordAction, InlineReviewService review,
+        WordActionService wordAction, InlineReviewService review, MiningService mining,
         SubtitleColorizer colorizer,
         PluginSettings settings, OsdState osd, ILogger logger)
     {
@@ -49,6 +50,7 @@ public sealed class InteractionHandler : IDisposable
         _autopause = autopause;
         _wordAction = wordAction;
         _review = review;
+        _mining = mining;
         _colorizer = colorizer;
         _settings = settings;
         _osd = osd;
@@ -56,6 +58,7 @@ public sealed class InteractionHandler : IDisposable
 
         _blur.WordUnrevealed += () => _ = ReRenderSubtitleAsync(CancellationToken.None);
         _popup.ActionClicked += action => _ = RunSafe(() => ExecutePopupActionAsync(action, CancellationToken.None));
+        _popup.DeckSelected += deckId => _ = RunSafe(() => MineCurrentWordAsync(deckId, CancellationToken.None));
     }
 
     public void UpdateSettings(PluginSettings newSettings) => _settings = newSettings;
@@ -238,19 +241,51 @@ public sealed class InteractionHandler : IDisposable
     {
         if (_currentEntry is null || _currentText is null) return;
 
+        var action = _settings.DoubleClickAction;
+        if (action == DoubleClickAction.None) return;
+
         var hit = _hitTest.HitTest(mx, my, _osd.Width, _osd.Height);
         if (hit is null) return;
 
-        var key = (hit.WordId, hit.ReadingIndex);
-        var state = _currentEntry.VocabStates.GetValueOrDefault(key);
-        await _wordAction.SetStateAsync(
-            hit.WordId, hit.ReadingIndex, PopupAction.NeverForget,
-            state, _currentText, _ipc, ct);
+        if (action == DoubleClickAction.Mine)
+        {
+            await _mining.MineWithConfiguredDeckAsync(
+                hit.WordId, hit.ReadingIndex, _currentText, _ipc, ct);
+        }
+        else
+        {
+            var key = (hit.WordId, hit.ReadingIndex);
+            var state = _currentEntry.VocabStates.GetValueOrDefault(key);
+            await _wordAction.SetStateAsync(
+                hit.WordId, hit.ReadingIndex, PopupAction.NeverForget,
+                state, _currentText, _ipc, ct);
+        }
 
         if (_settings.PopupHideAfterAction && _popup.IsVisible)
             await _popup.HideAsync(ct);
+        else if (_popup.IsVisible && _currentEntry is not null)
+            await _popup.RefreshAsync(_currentEntry, ct);
 
         await ReRenderSubtitleAsync(ct);
+    }
+
+    private async Task MineCurrentWordAsync(int deckId, CancellationToken ct)
+    {
+        await _eventLock.WaitAsync(ct);
+        try
+        {
+            if (_popup.CurrentWord is not { } key) return;
+            await _mining.MineAsync(key.WordId, key.ReadingIndex, deckId, _currentText, _ipc, ct);
+
+            if (_settings.PopupHideAfterAction)
+                await _popup.HideAsync(ct);
+            else if (_currentEntry is not null)
+                await _popup.RefreshAsync(_currentEntry, ct);
+        }
+        finally
+        {
+            _eventLock.Release();
+        }
     }
 
     public async Task ExecutePopupActionAsync(PopupAction action, CancellationToken ct)
@@ -289,6 +324,17 @@ public sealed class InteractionHandler : IDisposable
             case PopupAction.ReviewEasy:
                 await _review.ReviewAsync(wordId, readingIndex, 4, _ipc, ct);
                 break;
+            case PopupAction.Mine:
+                await _mining.MineWithConfiguredDeckAsync(wordId, readingIndex, _currentText, _ipc, ct);
+                break;
+        }
+
+        // Silent when no deck is configured: auto-mining must not nag on every grade.
+        if (action.IsReview() && _settings.MiningAutoOnReview
+            && _mining.ResolveTargetDeck() is { } autoDeck)
+        {
+            await _mining.MineAsync(wordId, readingIndex, autoDeck, _currentText, _ipc, ct,
+                reportSkip: false);
         }
 
         if (_settings.PopupHideAfterAction)

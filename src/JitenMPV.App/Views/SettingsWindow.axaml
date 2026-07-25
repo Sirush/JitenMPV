@@ -427,8 +427,39 @@
                   <TextBlock Text="Mining" FontSize="15" FontWeight="Medium"
                              VerticalAlignment="Center" Foreground="#ffffff" />
                 </StackPanel>
-                <StackPanel IsVisible="{Binding MiningEnabled}" Margin="16,0,0,0">
-                  <CheckBox Content="Capture sentence context" IsChecked="{Binding MiningCaptureSentence}" />
+                <StackPanel IsVisible="{Binding MiningEnabled}" Margin="16,0,0,0" Spacing="8">
+                  <CheckBox Content="Attach the subtitle line as an example sentence"
+                            IsChecked="{Binding MiningCaptureSentence}" />
+
+                  <TextBlock Text="Target word list" Foreground="#a1a1aa" FontSize="13" FontWeight="Medium" />
+                  <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                    <ComboBox Grid.Column="0" HorizontalAlignment="Stretch"
+                              ItemsSource="{Binding AvailableDecks}"
+                              SelectedItem="{Binding SelectedStudyDeck}"
+                              PlaceholderText="Load your lists to choose one">
+                      <ComboBox.ItemTemplate>
+                        <DataTemplate>
+                          <TextBlock Text="{Binding Name}" />
+                        </DataTemplate>
+                      </ComboBox.ItemTemplate>
+                    </ComboBox>
+                    <Button Grid.Column="1" Content="Load lists"
+                            Command="{Binding LoadDecksCommand}"
+                            IsEnabled="{Binding !IsLoadingDecks}" />
+                  </Grid>
+                  <TextBlock Text="{Binding DeckStatus}" Foreground="#a1a1aa" FontSize="12" />
+
+                  <CheckBox Content="Mine straight to this list (otherwise the popup asks which list)"
+                            IsChecked="{Binding MiningToStudyDeck}" />
+                  <CheckBox Content="Also mine when grading a card"
+                            IsChecked="{Binding MiningAutoOnReview}" />
+                  <CheckBox Content="Skip words already in the target list"
+                            IsChecked="{Binding MiningSkipIfPresent}" />
+
+                  <TextBlock Text="Double-click a word" Foreground="#a1a1aa" FontSize="13" FontWeight="Medium" />
+                  <ComboBox HorizontalAlignment="Stretch"
+                            ItemsSource="{Binding DoubleClickActions}"
+                            SelectedItem="{Binding DoubleClickAction}" />
                 </StackPanel>
               </StackPanel>
             </Border>
@@ -543,6 +574,8 @@
                 <CheckBox Content="Suspend" IsChecked="{Binding PopupShowSuspend}" />
                 <CheckBox Content="Forget" IsChecked="{Binding PopupShowForget}" />
               </StackPanel>
+              <CheckBox Content="Show which lists and decks the word is in"
+                        IsChecked="{Binding PopupShowDeckMembership}" />
               <CheckBox Content="Show review buttons" IsChecked="{Binding PopupShowReview}" />
               <CheckBox Content="Use two grades (Pass/Fail) instead of four"
                         IsChecked="{Binding PopupUseTwoGrades}" />
@@ -586,7 +619,7 @@
                     CornerRadius="8" Padding="16">
               <StackPanel Spacing="12">
                 <TextBlock Text="STATE ACTIONS" Classes="section-header" />
-                <Grid ColumnDefinitions="120,*" RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="8">
+                <Grid ColumnDefinitions="120,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto" RowSpacing="8">
                   <TextBlock Text="Never Forget" VerticalAlignment="Center" Foreground="#a1a1aa" />
                   <TextBox Grid.Column="1" Text="{Binding KeybindNeverForget}"
                            PlaceholderText="e.g. m" MaxWidth="200" HorizontalAlignment="Left" />
@@ -602,6 +635,10 @@
                   <TextBlock Grid.Row="3" Text="Forget" VerticalAlignment="Center" Foreground="#a1a1aa" />
                   <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding KeybindForget}"
                            PlaceholderText="e.g. f" MaxWidth="200" HorizontalAlignment="Left" />
+
+                  <TextBlock Grid.Row="4" Text="Mine to list" VerticalAlignment="Center" Foreground="#a1a1aa" />
+                  <TextBox Grid.Row="4" Grid.Column="1" Text="{Binding KeybindMine}"
+                           PlaceholderText="e.g. d" MaxWidth="200" HorizontalAlignment="Left" />
                 </Grid>
               </StackPanel>
             </Border>

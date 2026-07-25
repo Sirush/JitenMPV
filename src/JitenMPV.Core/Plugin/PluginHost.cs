@@ -30,6 +30,7 @@ public sealed class PluginHost(string pipePath, ILogger logger, IPopupPresenter 
     private volatile JitenApiClient? _apiClient;
     private volatile MpvIpcClient? _ipcClient;
     private volatile KeybindManager? _keybindManager;
+    private volatile MiningService? _miningService;
     private volatile bool _wasPausedBeforeSettings;
     private volatile string? _currentSubtitleText;
 
@@ -79,6 +80,7 @@ public sealed class PluginHost(string pipePath, ILogger logger, IPopupPresenter 
         _blurManager?.UpdateBlurStates(newSettings);
         _statusOverlay?.UpdateSettings(newSettings);
         _measurer?.UpdateSettings(newSettings);
+        _miningService?.UpdateSettings(newSettings);
 
         var (iPlusOne, freqMarker) = BuildDetectors(newSettings);
         _colorizer.UpdateDetectors(iPlusOne, freqMarker);
@@ -202,6 +204,8 @@ public sealed class PluginHost(string pipePath, ILogger logger, IPopupPresenter 
         _statusOverlay = statusOverlay;
         var wordAction = new WordActionService(apiClient, parseCache, statusOverlay, logger);
         var reviewService = new InlineReviewService(apiClient, parseCache, statusOverlay, logger);
+        var miningService = new MiningService(apiClient, parseCache, statusOverlay, settings, logger);
+        _miningService = miningService;
         var autopause = new AutopauseService(settings, logger);
         _autopause = autopause;
 
@@ -213,13 +217,13 @@ public sealed class PluginHost(string pipePath, ILogger logger, IPopupPresenter 
             await ipcClient.ConnectAsync(ct);
             logger.LogInformation("Connected to mpv");
 
-            var dataBuilder = new PopupDataBuilder(settings);
+            var dataBuilder = new PopupDataBuilder(settings, miningService);
             _popupDataBuilder = dataBuilder;
             var popupManager = new PopupManager(dataBuilder, popupPresenter);
 
             using var interaction = new InteractionHandler(
                 ipcClient, hitTest, blurManager, popupManager, autopause,
-                wordAction, reviewService, colorizer, settings, osd, logger);
+                wordAction, reviewService, miningService, colorizer, settings, osd, logger);
             _interactionHandler = interaction;
 
             var keybindManager = new KeybindManager(ipcClient, logger);
@@ -302,6 +306,9 @@ public sealed class PluginHost(string pipePath, ILogger logger, IPopupPresenter 
                 settings.MouseZonePercent.ToString(), ct);
 
             await keybindManager.ConfigureKeybindsAsync(settings.PopupKeybinds, settings.ReviewsEnabled, ct);
+
+            if (settings.MiningEnabled || settings.PopupShowDeckMembership)
+                _ = RunSafe(() => miningService.RefreshDecksAsync(ct));
 
             if (settings.PreparseEnabled)
                 _ = RunSafe(() => StartPreParseAsync(ipcClient, preParser, ct));

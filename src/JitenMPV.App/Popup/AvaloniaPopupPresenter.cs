@@ -25,6 +25,7 @@ public sealed class AvaloniaPopupPresenter : IPopupPresenter
     public bool IsVisible => _isVisible;
 
     public event Action<PopupAction>? ActionClicked;
+    public event Action<int>? DeckSelected;
     public event Action? MouseEntered;
     public event Action? MouseLeft;
 
@@ -67,6 +68,7 @@ public sealed class AvaloniaPopupPresenter : IPopupPresenter
         return Dispatcher.UIThread.InvokeAsync(() =>
         {
             _isVisible = false;
+            _viewModel?.CloseDeckPicker();
             _window?.Hide();
         }).GetTask();
     }
@@ -77,6 +79,7 @@ public sealed class AvaloniaPopupPresenter : IPopupPresenter
 
         _viewModel = new PopupViewModel();
         _viewModel.ActionClicked += action => ActionClicked?.Invoke(action);
+        _viewModel.DeckSelected += deckId => DeckSelected?.Invoke(deckId);
 
         _window = new DictionaryPopupWindow { DataContext = _viewModel };
         _lastFontScale = -1;

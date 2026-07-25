@@ -9,7 +9,8 @@ public enum PopupAction
     ReviewAgain,
     ReviewHard,
     ReviewGood,
-    ReviewEasy
+    ReviewEasy,
+    Mine
 }
 
 public static class PopupActions

@@ -8,5 +8,8 @@ public enum KnownState
     Blacklisted = 3,
     Due = 4,
     Mastered = 5,
-    Redundant = 6
+
+    /// Already covered by another card; not reviewable and not user-controlled, unlike Suspended.
+    Redundant = 6,
+    Suspended = 7
 }

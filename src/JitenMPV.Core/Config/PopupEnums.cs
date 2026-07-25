@@ -17,5 +17,15 @@ public enum PopupPositionMode
     BelowSubtitle
 }
 
+[JsonConverter(typeof(DoubleClickActionConverter))]
+public enum DoubleClickAction
+{
+    None,
+    Master,
+    Mine
+}
+
+
+internal sealed class DoubleClickActionConverter() : JsonStringEnumConverter<DoubleClickAction>(JsonNamingPolicy.KebabCaseLower);
 internal sealed class PopupTriggerModeConverter() : JsonStringEnumConverter<PopupTriggerMode>(JsonNamingPolicy.KebabCaseLower);
 internal sealed class PopupPositionModeConverter() : JsonStringEnumConverter<PopupPositionMode>(JsonNamingPolicy.KebabCaseLower);

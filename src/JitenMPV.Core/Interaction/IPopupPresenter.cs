@@ -9,6 +9,8 @@ public interface IPopupPresenter
     Task HideAsync(CancellationToken ct);
 
     event Action<PopupAction>? ActionClicked;
+    /// Carries the study-deck id chosen from the popup's deck picker.
+    event Action<int>? DeckSelected;
     event Action? MouseEntered;
     event Action? MouseLeft;
 }

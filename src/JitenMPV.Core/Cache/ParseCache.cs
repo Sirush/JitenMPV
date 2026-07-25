@@ -52,7 +52,7 @@ public sealed class ParseCacheEntry
             var key = (word.WordId, word.ReadingIndex);
             vocabDetails.TryAdd(key, word);
             if (word.KnownState.Count > 0)
-                vocabStates.TryAdd(key, word.KnownState[0]);
+                vocabStates.TryAdd(key, KnownStates.Collapse(word.KnownState));
             if (word.FrequencyRank > 0)
                 freqRanks.TryAdd(key, word.FrequencyRank);
         }

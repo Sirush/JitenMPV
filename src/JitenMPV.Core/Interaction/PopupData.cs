@@ -22,9 +22,19 @@ public sealed record PopupData
     public bool ShowSuspend { get; init; }
     public bool ShowForget { get; init; }
     public bool ShowStateActions => ShowNeverForget || ShowBlacklist || ShowSuspend || ShowForget;
+    public bool ShowActionRow => ShowStateActions || ShowMine;
     public bool IsNeverForgotten { get; init; }
     public bool IsBlacklisted { get; init; }
     public bool IsSuspended { get; init; }
+
+    // Mining
+    public bool ShowMine { get; init; }
+    public bool IsMined { get; init; }
+    /// Populated only when mining is not configured to go straight to a fixed deck.
+    public IReadOnlyList<DeckOption> DeckOptions { get; init; } = [];
+    public bool ShowDeckPicker => ShowMine && DeckOptions.Count > 0;
+
+    public IReadOnlyList<DeckMembershipRow> DeckMembership { get; init; } = [];
 
     // Review visibility
     public bool ShowReview { get; init; }
@@ -36,3 +46,5 @@ public sealed record PopupData
     public double FontScale { get; init; } = 1.0;
     public PopupPositionMode PositionMode { get; init; } = PopupPositionMode.AboveSubtitle;
 }
+
+public sealed record DeckOption(int DeckId, string Name);

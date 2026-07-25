@@ -10,6 +10,32 @@ using JitenMPV.Core.Interaction;
 
 namespace JitenMPV.App.ViewModels;
 
+/// Carries the picker command per row so the item template needs no ancestor binding.
+public sealed record DeckOptionItem(DeckOption Option, ICommand Pick)
+{
+    public string Name => Option.Name;
+}
+
+public sealed record DeckMembershipItem(DeckMembershipRow Row)
+{
+    // Matches the Reader extension's $deck-types palette.
+    private static readonly IBrush WordListBrush = new SolidColorBrush(Color.FromArgb(230, 80, 200, 120));
+    private static readonly IBrush MediaDeckBrush = new SolidColorBrush(Color.FromArgb(230, 90, 160, 255));
+    private static readonly IBrush FrequencyBrush = new SolidColorBrush(Color.FromArgb(230, 190, 130, 255));
+
+    public string Label => Row.Label;
+    public string Names => Row.Names;
+    public bool HasNames => !string.IsNullOrWhiteSpace(Row.Names);
+
+    public IBrush Dot => Row.Type switch
+    {
+        StudyDeckType.StaticWordList => WordListBrush,
+        StudyDeckType.MediaDeck => MediaDeckBrush,
+        StudyDeckType.GlobalDynamic => FrequencyBrush,
+        _ => MediaDeckBrush
+    };
+}
+
 public partial class PopupViewModel : ViewModelBase
 {
     [ObservableProperty] private IBrush _popupBackground = new SolidColorBrush(Color.FromArgb(200, 0x1A, 0x1A, 0x1A));
@@ -32,18 +58,34 @@ public partial class PopupViewModel : ViewModelBase
     [ObservableProperty] private bool _showSuspend;
     [ObservableProperty] private bool _showForget;
     [ObservableProperty] private bool _showStateActions;
+    [ObservableProperty] private bool _showActionRow;
     [ObservableProperty] private string _masterLabel = "Master";
     [ObservableProperty] private string _blacklistLabel = "Blacklist";
     [ObservableProperty] private string _suspendLabel = "Suspend";
+
+    [ObservableProperty] private bool _showMine;
+    [ObservableProperty] private bool _isMined;
+    [ObservableProperty] private string _mineLabel = "Deck +";
+    [ObservableProperty] private bool _showDeckPicker;
+    [ObservableProperty] private bool _isDeckPickerOpen;
+    [ObservableProperty] private bool _showDeckMembership;
+    [ObservableProperty] private List<DeckMembershipItem> _deckMembership = [];
+    [ObservableProperty] private List<DeckOptionItem> _deckOptions = [];
 
     [ObservableProperty] private bool _showReview;
     [ObservableProperty] private bool _showHardEasy;
 
     private string? _lastBgColor;
     private int _lastBgOpacity = -1;
+    private (int WordId, byte ReadingIndex)? _lastWord;
+
+    public void CloseDeckPicker() => IsDeckPickerOpen = false;
 
     public event Action<PopupAction>? ActionClicked;
+    public event Action<int>? DeckSelected;
 
+    public ICommand MineCommand { get; }
+    public ICommand PickDeckCommand { get; }
     public ICommand NeverForgetCommand { get; }
     public ICommand BlacklistCommand { get; }
     public ICommand SuspendCommand { get; }
@@ -56,6 +98,20 @@ public partial class PopupViewModel : ViewModelBase
 
     public PopupViewModel()
     {
+        // With a picker available the button toggles it; otherwise it mines to the configured deck.
+        MineCommand = new RelayCommand(() =>
+        {
+            if (ShowDeckPicker)
+                IsDeckPickerOpen = !IsDeckPickerOpen;
+            else
+                ActionClicked?.Invoke(PopupAction.Mine);
+        });
+        PickDeckCommand = new RelayCommand<DeckOption>(deck =>
+        {
+            if (deck is null) return;
+            IsDeckPickerOpen = false;
+            DeckSelected?.Invoke(deck.DeckId);
+        });
         NeverForgetCommand = new RelayCommand(() => ActionClicked?.Invoke(PopupAction.NeverForget));
         BlacklistCommand = new RelayCommand(() => ActionClicked?.Invoke(PopupAction.Blacklist));
         SuspendCommand = new RelayCommand(() => ActionClicked?.Invoke(PopupAction.Suspend));
@@ -94,10 +150,25 @@ public partial class PopupViewModel : ViewModelBase
         ShowSuspend = data.ShowSuspend;
         ShowForget = data.ShowForget;
         ShowStateActions = data.ShowStateActions;
+        ShowActionRow = data.ShowActionRow;
 
         MasterLabel = data.IsNeverForgotten ? "Un-master" : "Master";
         BlacklistLabel = data.IsBlacklisted ? "Un-blacklist" : "Blacklist";
         SuspendLabel = data.IsSuspended ? "Resume" : "Suspend";
+
+        ShowMine = data.ShowMine;
+        IsMined = data.IsMined;
+        MineLabel = data.IsMined ? "In list" : "Deck +";
+        ShowDeckPicker = data.ShowDeckPicker;
+        DeckOptions = [..data.DeckOptions.Select(o => new DeckOptionItem(o, PickDeckCommand))];
+
+        DeckMembership = [..data.DeckMembership.Select(r => new DeckMembershipItem(r))];
+        ShowDeckMembership = DeckMembership.Count > 0;
+
+        // A picker left open would otherwise carry over to whatever word is shown next.
+        var word = (data.WordId, data.ReadingIndex);
+        if (!ShowDeckPicker || _lastWord != word) IsDeckPickerOpen = false;
+        _lastWord = word;
 
         ShowReview = data.ShowReview;
         ShowHardEasy = !data.UseTwoGrades;

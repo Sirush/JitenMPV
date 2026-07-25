@@ -37,8 +37,60 @@ public sealed class ReviewResponse
     [JsonPropertyName("success")]
     public bool Success { get; set; }
 
+    /// The scheduler state, not a KnownState — map it with FsrsStateMapper.
     [JsonPropertyName("newState")]
-    public KnownState? NewState { get; set; }
+    public FsrsState? NewState { get; set; }
+
+    [JsonPropertyName("nextDue")]
+    public DateTimeOffset? NextDue { get; set; }
+}
+
+public sealed class BatchReviewItem
+{
+    [JsonPropertyName("wordId")]
+    public int WordId { get; init; }
+
+    [JsonPropertyName("readingIndex")]
+    public byte ReadingIndex { get; init; }
+
+    [JsonPropertyName("rating")]
+    public int Rating { get; init; }
+}
+
+public sealed class BatchReviewRequest
+{
+    [JsonPropertyName("reviews")]
+    public required IReadOnlyList<BatchReviewItem> Reviews { get; init; }
+}
+
+public sealed class BatchReviewResultItem
+{
+    [JsonPropertyName("wordId")]
+    public int WordId { get; set; }
+
+    [JsonPropertyName("readingIndex")]
+    public byte ReadingIndex { get; set; }
+
+    /// Scheduler state again, and without a per-item due date, so Young/Mature cannot be told
+    /// apart here: map it with a null nextDue and refresh from lookup-vocabulary if it matters.
+    [JsonPropertyName("newState")]
+    public FsrsState NewState { get; set; }
+}
+
+public sealed class BatchReviewResponse
+{
+    [JsonPropertyName("success")]
+    public bool Success { get; set; }
+
+    [JsonPropertyName("processed")]
+    public int Processed { get; set; }
+
+    /// Word ids the server auto-suspended as leeches during this batch.
+    [JsonPropertyName("leechSuspended")]
+    public List<int> LeechSuspended { get; set; } = [];
+
+    [JsonPropertyName("results")]
+    public List<BatchReviewResultItem> Results { get; set; } = [];
 }
 
 public static class VocabularyStateActions

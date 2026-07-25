@@ -14,6 +14,7 @@ public sealed class PopupManager
     public bool IsVisible => _presenter.IsVisible;
     public (int WordId, byte ReadingIndex)? CurrentWord => _currentWord;
     public event Action<PopupAction>? ActionClicked;
+    public event Action<int>? DeckSelected;
     public event Action<bool>? VisibilityChanged;
 
     public PopupManager(PopupDataBuilder dataBuilder, IPopupPresenter presenter)
@@ -21,6 +22,7 @@ public sealed class PopupManager
         _dataBuilder = dataBuilder;
         _presenter = presenter;
         _presenter.ActionClicked += action => ActionClicked?.Invoke(action);
+        _presenter.DeckSelected += deckId => DeckSelected?.Invoke(deckId);
         _presenter.MouseEntered += () => _mouseOverPopup = true;
         _presenter.MouseLeft += () => _mouseOverPopup = false;
     }

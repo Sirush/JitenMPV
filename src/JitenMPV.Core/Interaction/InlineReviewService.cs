@@ -1,4 +1,5 @@
 using JitenMPV.Core.Api;
+using JitenMPV.Core.Api.Models;
 using JitenMPV.Core.Cache;
 using JitenMPV.Core.Mpv;
 using Microsoft.Extensions.Logging;
@@ -23,7 +24,10 @@ public sealed class InlineReviewService(
             if (!response.Success) return false;
 
             if (response.NewState is { } newState)
-                cache.UpdateWordState(wordId, readingIndex, newState);
+            {
+                cache.UpdateWordState(wordId, readingIndex,
+                    FsrsStateMapper.ToKnownState(newState, response.NextDue, DateTimeOffset.UtcNow));
+            }
 
             var label = rating >= 1 && rating < RatingLabels.Length ? RatingLabels[rating] : rating.ToString();
             await status.ShowAsync(ipc, $"Reviewed: {label}", 1500, ct);

@@ -2,13 +2,19 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using JitenMPV.Core.Api;
 using JitenMPV.Core.Api.Models;
 using JitenMPV.Core.Config;
 using JitenMPV.Core.Theming;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace JitenMPV.App.ViewModels;
+
+public sealed record StudyDeckOption(int DeckId, string Name);
 
 public partial class SettingsViewModel : ViewModelBase
 {
@@ -63,6 +69,7 @@ public partial class SettingsViewModel : ViewModelBase
     [ObservableProperty] private bool _popupShowBlacklist;
     [ObservableProperty] private bool _popupShowSuspend;
     [ObservableProperty] private bool _popupShowForget;
+    [ObservableProperty] private bool _popupShowDeckMembership;
     [ObservableProperty] private bool _popupShowReview;
     [ObservableProperty] private bool _popupUseTwoGrades;
 
@@ -95,6 +102,22 @@ public partial class SettingsViewModel : ViewModelBase
 
     [ObservableProperty] private string _importCode = "";
     [ObservableProperty] private string _importStatus = "";
+
+    [ObservableProperty] private bool _miningToStudyDeck;
+    [ObservableProperty] private bool _miningAutoOnReview;
+    [ObservableProperty] private bool _miningSkipIfPresent;
+    [ObservableProperty] private StudyDeckOption? _selectedStudyDeck;
+    [ObservableProperty] private string _deckStatus = "";
+    [ObservableProperty] private bool _isLoadingDecks;
+    [ObservableProperty] private DoubleClickAction _doubleClickAction;
+    [ObservableProperty] private string _keybindMine = "";
+
+    public ObservableCollection<StudyDeckOption> AvailableDecks { get; } = [];
+
+    public ObservableCollection<DoubleClickAction> DoubleClickActions { get; } =
+    [
+        DoubleClickAction.None, DoubleClickAction.Master, DoubleClickAction.Mine
+    ];
 
     public ObservableCollection<StateStyleViewModel> CustomStateStyles { get; } = [];
     private string _previousTheme = "Default";
@@ -158,12 +181,23 @@ public partial class SettingsViewModel : ViewModelBase
         PopupShowBlacklist = s.PopupShowBlacklist;
         PopupShowSuspend = s.PopupShowSuspend;
         PopupShowForget = s.PopupShowForget;
+        PopupShowDeckMembership = s.PopupShowDeckMembership;
         PopupShowReview = s.PopupShowReview;
         PopupUseTwoGrades = s.PopupUseTwoGrades;
         AutopauseEnabled = s.AutopauseEnabled;
         AutopauseDelayMs = s.AutopauseDelayMs;
         MiningEnabled = s.MiningEnabled;
         MiningCaptureSentence = s.MiningCaptureSentence;
+        MiningToStudyDeck = s.MiningToStudyDeck;
+        MiningAutoOnReview = s.MiningAutoOnReview;
+        MiningSkipIfPresent = s.MiningSkipIfPresent;
+        DoubleClickAction = s.DoubleClickAction;
+        if (s.MiningStudyDeckId is { } deckId)
+        {
+            var placeholder = new StudyDeckOption(deckId, $"Deck #{deckId}");
+            AvailableDecks.Add(placeholder);
+            SelectedStudyDeck = placeholder;
+        }
         ReviewsEnabled = s.ReviewsEnabled;
         CacheSize = s.CacheSize;
         PreparseEnabled = s.PreparseEnabled;
@@ -182,6 +216,7 @@ public partial class SettingsViewModel : ViewModelBase
             KeybindBlacklist = kb.GetValueOrDefault("Blacklist", "");
             KeybindSuspend = kb.GetValueOrDefault("Suspend", "");
             KeybindForget = kb.GetValueOrDefault("Forget", "");
+            KeybindMine = kb.GetValueOrDefault("Mine", "");
         }
 
         _previousTheme = s.Theme == "Custom" ? "Default" : s.Theme;
@@ -250,12 +285,18 @@ public partial class SettingsViewModel : ViewModelBase
             PopupShowBlacklist = PopupShowBlacklist,
             PopupShowSuspend = PopupShowSuspend,
             PopupShowForget = PopupShowForget,
+            PopupShowDeckMembership = PopupShowDeckMembership,
             PopupShowReview = PopupShowReview,
             PopupUseTwoGrades = PopupUseTwoGrades,
             AutopauseEnabled = AutopauseEnabled,
             AutopauseDelayMs = AutopauseDelayMs,
             MiningEnabled = MiningEnabled,
             MiningCaptureSentence = MiningCaptureSentence,
+            MiningToStudyDeck = MiningToStudyDeck,
+            MiningAutoOnReview = MiningAutoOnReview,
+            MiningSkipIfPresent = MiningSkipIfPresent,
+            MiningStudyDeckId = SelectedStudyDeck?.DeckId,
+            DoubleClickAction = DoubleClickAction,
             ReviewsEnabled = ReviewsEnabled,
             CacheSize = CacheSize,
             PreparseEnabled = PreparseEnabled,
@@ -285,11 +326,53 @@ public partial class SettingsViewModel : ViewModelBase
         TryAdd("Blacklist", KeybindBlacklist);
         TryAdd("Suspend", KeybindSuspend);
         TryAdd("Forget", KeybindForget);
+        TryAdd("Mine", KeybindMine);
         return dict.Count > 0 ? dict : null;
     }
 
     [RelayCommand]
     private void ToggleApiKeyVisibility() => IsApiKeyVisible = !IsApiKeyVisible;
+
+    [RelayCommand]
+    private async Task LoadDecksAsync()
+    {
+        if (IsLoadingDecks) return;
+        if (string.IsNullOrWhiteSpace(ApiKey))
+        {
+            DeckStatus = "Set an API key first";
+            return;
+        }
+
+        IsLoadingDecks = true;
+        DeckStatus = "Loading...";
+        try
+        {
+            var client = new JitenApiClient(ApiKey, ApiBaseUrl, ApiTimeoutSeconds,
+                NullLogger<SettingsViewModel>.Instance);
+            var decks = await client.GetStudyDecksAsync(CancellationToken.None);
+
+            // The selection is restored by id: the pre-load placeholder is a different instance.
+            var previousId = SelectedStudyDeck?.DeckId;
+            AvailableDecks.Clear();
+            foreach (var deck in decks)
+                AvailableDecks.Add(new StudyDeckOption(deck.UserStudyDeckId, deck.Name));
+
+            SelectedStudyDeck = AvailableDecks.FirstOrDefault(d => d.DeckId == previousId);
+            DeckStatus = decks.Count == 0 ? "No word lists found" : $"{decks.Count} lists";
+        }
+        catch (JitenApiKeyRejectedException)
+        {
+            DeckStatus = "API key rejected";
+        }
+        catch (Exception ex)
+        {
+            DeckStatus = $"Failed: {ex.Message}";
+        }
+        finally
+        {
+            IsLoadingDecks = false;
+        }
+    }
 
     [RelayCommand]
     private void SetSubtitleAlignment(string value)
@@ -401,6 +484,11 @@ public partial class SettingsViewModel : ViewModelBase
                 AutopauseDelayMs = defaults.AutopauseDelayMs;
                 MiningEnabled = defaults.MiningEnabled;
                 MiningCaptureSentence = defaults.MiningCaptureSentence;
+                MiningToStudyDeck = defaults.MiningToStudyDeck;
+                MiningAutoOnReview = defaults.MiningAutoOnReview;
+                MiningSkipIfPresent = defaults.MiningSkipIfPresent;
+                DoubleClickAction = defaults.DoubleClickAction;
+                SelectedStudyDeck = null;
                 ReviewsEnabled = defaults.ReviewsEnabled;
                 break;
             case 3:
@@ -422,6 +510,7 @@ public partial class SettingsViewModel : ViewModelBase
                 PopupShowBlacklist = defaults.PopupShowBlacklist;
                 PopupShowSuspend = defaults.PopupShowSuspend;
                 PopupShowForget = defaults.PopupShowForget;
+                PopupShowDeckMembership = defaults.PopupShowDeckMembership;
                 PopupShowReview = defaults.PopupShowReview;
                 PopupUseTwoGrades = defaults.PopupUseTwoGrades;
                 break;
@@ -431,6 +520,7 @@ public partial class SettingsViewModel : ViewModelBase
                 KeybindReviewHard = kb.GetValueOrDefault("ReviewHard", "");
                 KeybindReviewGood = kb.GetValueOrDefault("ReviewGood", "");
                 KeybindReviewEasy = kb.GetValueOrDefault("ReviewEasy", "");
+                KeybindMine = kb.GetValueOrDefault("Mine", "");
                 KeybindNeverForget = kb.GetValueOrDefault("NeverForget", "");
                 KeybindBlacklist = kb.GetValueOrDefault("Blacklist", "");
                 KeybindSuspend = kb.GetValueOrDefault("Suspend", "");

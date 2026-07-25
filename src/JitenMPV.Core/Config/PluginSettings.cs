@@ -106,6 +106,9 @@ public sealed class PluginSettings
     [JsonPropertyName("popup_show_forget")]
     public bool PopupShowForget { get; set; }
 
+    [JsonPropertyName("popup_show_deck_membership")]
+    public bool PopupShowDeckMembership { get; set; } = true;
+
     [JsonPropertyName("popup_show_review")]
     public bool PopupShowReview { get; set; } = true;
 
@@ -130,8 +133,27 @@ public sealed class PluginSettings
     [JsonPropertyName("mining_enabled")]
     public bool MiningEnabled { get; set; } = true;
 
+    /// Attaches the current subtitle line (and the media title as source) to a mined word.
     [JsonPropertyName("mining_capture_sentence")]
     public bool MiningCaptureSentence { get; set; } = true;
+
+    [JsonPropertyName("mining_study_deck_id")]
+    public int? MiningStudyDeckId { get; set; }
+
+    /// When set, mining goes straight to MiningStudyDeckId; otherwise the popup offers a picker.
+    [JsonPropertyName("mining_to_study_deck")]
+    public bool MiningToStudyDeck { get; set; }
+
+    [JsonPropertyName("mining_auto_on_review")]
+    public bool MiningAutoOnReview { get; set; }
+
+    /// Skips the request when the word is already in the target deck, so re-mining cannot bump
+    /// its occurrence count or overwrite the sentence already attached to it.
+    [JsonPropertyName("mining_skip_if_present")]
+    public bool MiningSkipIfPresent { get; set; } = true;
+
+    [JsonPropertyName("double_click_action")]
+    public DoubleClickAction DoubleClickAction { get; set; } = DoubleClickAction.Mine;
 
     /// Master switch for SRS grading: gates the popup grade buttons, the review keybinds and the
     /// action dispatch. Mirrors the Reader extension's jitenDisableReviews.
@@ -175,7 +197,8 @@ public sealed class PluginSettings
         ["NeverForget"] = "m",
         ["Blacklist"] = "b",
         ["Suspend"] = "s",
-        ["Forget"] = "f"
+        ["Forget"] = "f",
+        ["Mine"] = "d"
     };
 
 }
