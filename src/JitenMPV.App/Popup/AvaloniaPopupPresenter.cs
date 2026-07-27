@@ -20,7 +20,10 @@ public sealed class AvaloniaPopupPresenter : IPopupPresenter
     private volatile bool _isVisible;
     private PixelPoint _lastCursorPos;
     private PopupPositionMode _positionMode = PopupPositionMode.AboveSubtitle;
+    private PopupAnchor _fixedAnchor = PopupAnchor.TopCenter;
+    private int _offsetPx = 60;
     private double _lastFontScale = -1;
+    private int _lastMaxWidth = -1;
 
     public bool IsVisible => _isVisible;
 
@@ -37,8 +40,11 @@ public sealed class AvaloniaPopupPresenter : IPopupPresenter
             EnsureWindow();
 
             _positionMode = data.PositionMode;
+            _fixedAnchor = data.FixedAnchor;
+            _offsetPx = data.OffsetPx;
             _viewModel!.Update(data);
             ApplyFontScale(data.FontScale);
+            ApplyMaxWidth(data.MaxWidthPx);
             _lastCursorPos = CursorPositionHelper.GetCursorPosition();
 
             PositionWindow(_lastCursorPos);
@@ -60,6 +66,7 @@ public sealed class AvaloniaPopupPresenter : IPopupPresenter
             EnsureWindow();
             _viewModel!.Update(data);
             ApplyFontScale(data.FontScale);
+            ApplyMaxWidth(data.MaxWidthPx);
         }).GetTask();
     }
 
@@ -97,6 +104,13 @@ public sealed class AvaloniaPopupPresenter : IPopupPresenter
             container.LayoutTransform = new ScaleTransform(scale, scale);
     }
 
+    private void ApplyMaxWidth(int maxWidthPx)
+    {
+        if (_window is null || maxWidthPx == _lastMaxWidth || maxWidthPx <= 0) return;
+        _lastMaxWidth = maxWidthPx;
+        _window.MaxWidth = maxWidthPx;
+    }
+
     private void PositionWindow(PixelPoint cursorPos)
     {
         if (_window is null) return;
@@ -111,24 +125,42 @@ public sealed class AvaloniaPopupPresenter : IPopupPresenter
         int windowWidth = bounds.Width > 0 ? (int)(bounds.Width * scaling) : 350;
         int windowHeight = bounds.Height > 0 ? (int)(bounds.Height * scaling) : 250;
 
-        int x = cursorPos.X - windowWidth / 2;
-        int y;
+        var (x, y) = _positionMode == PopupPositionMode.Fixed
+            ? AnchoredPosition(workArea, windowWidth, windowHeight)
+            : CursorRelativePosition(cursorPos, workArea, windowWidth, windowHeight);
+
+        _window.Position = new PixelPoint(
+            Math.Clamp(x, workArea.X, Math.Max(workArea.X, workArea.Right - windowWidth)),
+            Math.Clamp(y, workArea.Y, Math.Max(workArea.Y, workArea.Bottom - windowHeight)));
+    }
+
+    /// The pointer sits inside the subtitle line it is pointing at, so the offset has to clear the
+    /// text rather than merely separate the popup from the cursor hotspot.
+    private (int X, int Y) CursorRelativePosition(
+        PixelPoint cursor, PixelRect workArea, int width, int height)
+    {
+        int x = cursor.X - width / 2;
 
         if (_positionMode == PopupPositionMode.BelowSubtitle)
         {
-            y = cursorPos.Y + 20;
-            if (y + windowHeight > workArea.Bottom)
-                y = cursorPos.Y - windowHeight - 10;
+            int below = cursor.Y + _offsetPx;
+            return (x, below + height > workArea.Bottom ? cursor.Y - height - _offsetPx : below);
         }
-        else
+
+        int above = cursor.Y - height - _offsetPx;
+        return (x, above < workArea.Y ? cursor.Y + _offsetPx : above);
+    }
+
+    private (int X, int Y) AnchoredPosition(PixelRect workArea, int width, int height)
+    {
+        int x = _fixedAnchor switch
         {
-            y = cursorPos.Y - windowHeight - 10;
-            if (y < workArea.Y)
-                y = cursorPos.Y + 20;
-        }
+            PopupAnchor.TopLeft or PopupAnchor.BottomLeft => workArea.X + _offsetPx,
+            PopupAnchor.TopRight or PopupAnchor.BottomRight => workArea.Right - width - _offsetPx,
+            _ => workArea.X + (workArea.Width - width) / 2
+        };
 
-        x = Math.Clamp(x, workArea.X, Math.Max(workArea.X, workArea.Right - windowWidth));
-
-        _window.Position = new PixelPoint(x, y);
+        bool top = _fixedAnchor is PopupAnchor.TopLeft or PopupAnchor.TopCenter or PopupAnchor.TopRight;
+        return (x, top ? workArea.Y + _offsetPx : workArea.Bottom - height - _offsetPx);
     }
 }

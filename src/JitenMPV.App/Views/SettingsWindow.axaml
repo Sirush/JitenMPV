@@ -381,6 +381,11 @@
                              VerticalAlignment="Center" Width="50" Foreground="#ffffff" />
                 </StackPanel>
               </Grid>
+
+              <CheckBox Content="Join wrapped lines into one line when it fits"
+                        IsChecked="{Binding SubtitleSingleLine}" />
+              <TextBlock Text="Removes the line breaks the subtitle file put in. Lines too long to fit the screen keep their own breaks."
+                         FontSize="12" Foreground="#71717a" TextWrapping="Wrap" />
             </StackPanel>
           </StackPanel>
 
@@ -769,6 +774,11 @@
                 <TextBlock Text="Hover delay (ms)" Foreground="#a1a1aa" FontSize="13" FontWeight="Medium" />
                 <NumericUpDown Value="{Binding PopupHoverDelayMs}" Minimum="10" Maximum="3000" Increment="10" />
               </StackPanel>
+              <StackPanel Spacing="4">
+                <TextBlock Text="Switch delay for a word on another line (ms)"
+                           Foreground="#a1a1aa" FontSize="13" FontWeight="Medium" TextWrapping="Wrap" />
+                <NumericUpDown Value="{Binding PopupSwitchDelayMs}" Minimum="0" Maximum="2000" Increment="50" />
+              </StackPanel>
               <CheckBox Content="Auto-hide popup" IsChecked="{Binding PopupAutoHide}" />
               <StackPanel IsVisible="{Binding PopupAutoHide}" Spacing="4" Margin="24,0,0,0">
                 <TextBlock Text="Auto-hide delay (ms)" Foreground="#a1a1aa" FontSize="13" FontWeight="Medium" />
@@ -779,13 +789,28 @@
 
             <Border Classes="divider" />
 
-            <StackPanel Spacing="4">
+            <StackPanel Spacing="8">
               <TextBlock Text="Position" Foreground="#a1a1aa" FontSize="13" FontWeight="Medium" />
               <StackPanel Orientation="Horizontal" Spacing="16">
                 <RadioButton Content="Above subtitle" GroupName="PopupPos"
                              IsChecked="{Binding PopupPosition, Converter={StaticResource ParseEquals}, ConverterParameter=AboveSubtitle}" />
                 <RadioButton Content="Below subtitle" GroupName="PopupPos"
                              IsChecked="{Binding PopupPosition, Converter={StaticResource ParseEquals}, ConverterParameter=BelowSubtitle}" />
+                <RadioButton Content="Fixed" GroupName="PopupPos"
+                             IsChecked="{Binding PopupPosition, Converter={StaticResource ParseEquals}, ConverterParameter=Fixed}" />
+              </StackPanel>
+
+              <StackPanel Spacing="4" IsVisible="{Binding IsFixedPopupPosition}">
+                <TextBlock Text="Anchor" Foreground="#a1a1aa" FontSize="13" FontWeight="Medium" />
+                <ComboBox HorizontalAlignment="Stretch"
+                          ItemsSource="{Binding PopupAnchors}"
+                          SelectedItem="{Binding PopupFixedAnchor}" />
+              </StackPanel>
+
+              <StackPanel Spacing="4">
+                <TextBlock Text="Gap from the word, or margin from the screen edge when fixed (px)"
+                           Foreground="#a1a1aa" FontSize="13" FontWeight="Medium" TextWrapping="Wrap" />
+                <NumericUpDown Value="{Binding PopupOffsetPx}" Minimum="0" Maximum="600" Increment="10" />
               </StackPanel>
             </StackPanel>
 
@@ -793,7 +818,7 @@
 
             <StackPanel Spacing="8">
               <TextBlock Text="APPEARANCE" Classes="section-header" />
-              <Grid ColumnDefinitions="100,*" RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="8">
+              <Grid ColumnDefinitions="100,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto" RowSpacing="8">
                 <TextBlock Text="Font scale" VerticalAlignment="Center" Foreground="#a1a1aa" />
                 <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
                   <Slider Value="{Binding PopupFontScale}" Minimum="0.5" Maximum="1.5" Width="250"
@@ -814,8 +839,16 @@
                              Color="{Binding PopupBgColor, Converter={StaticResource HexToColor}}"
                              HorizontalAlignment="Left" />
 
-                <TextBlock Grid.Row="3" Text="Max meanings" VerticalAlignment="Center" Foreground="#a1a1aa" />
-                <NumericUpDown Grid.Row="3" Grid.Column="1"
+                <TextBlock Grid.Row="3" Text="Max width" VerticalAlignment="Center" Foreground="#a1a1aa" />
+                <StackPanel Grid.Row="3" Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                  <Slider Value="{Binding PopupMaxWidthPx}" Minimum="250" Maximum="1200" Width="250"
+                          TickFrequency="10" IsSnapToTickEnabled="True" />
+                  <TextBlock Text="{Binding PopupMaxWidthPx, StringFormat='{}{0} px'}"
+                             VerticalAlignment="Center" Foreground="#ffffff" />
+                </StackPanel>
+
+                <TextBlock Grid.Row="4" Text="Max meanings" VerticalAlignment="Center" Foreground="#a1a1aa" />
+                <NumericUpDown Grid.Row="4" Grid.Column="1"
                                Value="{Binding PopupMaxMeanings}" Minimum="1" Maximum="20" Increment="1" />
               </Grid>
             </StackPanel>

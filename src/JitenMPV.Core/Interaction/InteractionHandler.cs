@@ -13,6 +13,9 @@ public sealed class InteractionHandler : IDisposable
 {
     private const int SubtitleOverlayId = PluginHost.SubtitleOverlayId;
     private const long DebounceMs = 16;
+    private const string LuaTarget = "jiten_mpv";
+    private const string ClickPassthrough = "jiten-passthrough-click";
+    private const string DoubleClickPassthrough = "jiten-passthrough-dbl";
 
     private readonly MpvIpcClient _ipc;
     private readonly HitTestService _hitTest;
@@ -34,6 +37,9 @@ public sealed class InteractionHandler : IDisposable
 
     private string? _currentText;
     private ParseCacheEntry? _currentEntry;
+
+    private WordRect? _popupWord;
+    private WordRect? _pendingWord;
 
     private CancellationTokenSource? _hoverPopupCts;
     private CancellationTokenSource? _autoHideCts;
@@ -66,6 +72,14 @@ public sealed class InteractionHandler : IDisposable
 
     public void UpdateSettings(PluginSettings newSettings) => _settings = newSettings;
 
+    /// A click-triggered popup is dismissed by a click, not by the pointer wandering off it.
+    private bool StickyPopup => _settings.PopupTrigger == PopupTriggerMode.Click;
+
+    /// mpv routes a key to exactly one binding, so the Lua side claims MBTN_LEFT and MBTN_LEFT_DBL
+    /// unconditionally and only replays the command they displaced once a click is known to miss.
+    private Task PassThroughAsync(string message, CancellationToken ct)
+        => _ipc.SendScriptMessageAsync(LuaTarget, message, ct);
+
     public void UpdateLayout(List<WordRect> layout) => _hitTest.UpdateLayout(layout);
 
     public async Task OnSubtitleRenderedAsync(string? text, ParseCacheEntry? entry,
@@ -82,8 +96,9 @@ public sealed class InteractionHandler : IDisposable
 
             _blur.Reset();
             await _autopause.ResetAsync();
-            TaskHelper.CancelAndDispose(ref _hoverPopupCts);
+            CancelPendingPopup();
             TaskHelper.CancelAndDispose(ref _autoHideCts);
+            _popupWord = null;
 
             await _popup.HideAsync(ct);
 
@@ -98,7 +113,15 @@ public sealed class InteractionHandler : IDisposable
 
     public async Task OnMouseEventAsync(MouseEventArgs e, CancellationToken ct)
     {
-        if (!await _eventLock.WaitAsync(0, ct)) return;
+        // Clicks arriving mid-action are swallowed rather than passed through: mpv would otherwise
+        // fullscreen or pause on the impatient second double-click of a word still being mined.
+        if (!await _eventLock.WaitAsync(0, ct))
+        {
+            if (e.Type is MouseEventType.LeftPress or MouseEventType.DoubleClick)
+                _logger.LogDebug("Dropped {Type}: another interaction is in flight", e.Type);
+            return;
+        }
+
         try
         {
             switch (e.Type)
@@ -134,6 +157,10 @@ public sealed class InteractionHandler : IDisposable
         var hit = _hitTest.HitTest(mx, my, _osd.Width, _osd.Height);
         bool overPopup = _popup.IsVisible && _popup.IsMouseOverPopup;
 
+        // A click-triggered popup owns the interaction until a click dismisses it: its word stays
+        // revealed and the video stays paused however far the pointer wanders in the meantime.
+        if (StickyPopup && _popup.IsVisible && hit is null && !overPopup) return;
+
         if (hit is not null || overPopup)
             await _autopause.OnHoverEnterAsync(_ipc, ct);
 
@@ -145,21 +172,25 @@ public sealed class InteractionHandler : IDisposable
         {
             TaskHelper.CancelAndDispose(ref _autoHideCts);
 
-            if (_popup.IsVisible)
+            if (_popup.IsVisible && _popupWord?.TokenIndex == hit.TokenIndex)
             {
-                await _popup.ShowAsync(hit, _currentEntry, ct);
+                CancelPendingPopup();
+                return;
             }
-            else
-            {
-                TaskHelper.CancelAndDispose(ref _hoverPopupCts);
-                _hoverPopupCts = new CancellationTokenSource();
-                var linked = CancellationTokenSource.CreateLinkedTokenSource(_hoverPopupCts.Token, ct);
-                _ = ShowPopupAfterDelayAsync(hit, linked);
-            }
+
+            // Re-arming on every move would restart the countdown for as long as the pointer keeps
+            // drifting inside one word, so the timer is only replaced when it is aimed elsewhere.
+            if (_pendingWord?.TokenIndex == hit.TokenIndex) return;
+
+            CancelPendingPopup();
+            _pendingWord = hit;
+            _hoverPopupCts = new CancellationTokenSource();
+            var linked = CancellationTokenSource.CreateLinkedTokenSource(_hoverPopupCts.Token, ct);
+            _ = ShowPopupAfterDelayAsync(hit, HoverDelayFor(hit), linked);
         }
         else if (hit is null && !overPopup)
         {
-            TaskHelper.CancelAndDispose(ref _hoverPopupCts);
+            CancelPendingPopup();
             await _autopause.OnHoverLeaveAsync(_ipc, ct);
 
             if (_popup.IsVisible)
@@ -185,8 +216,10 @@ public sealed class InteractionHandler : IDisposable
 
     private async Task HandleLeaveAsync(CancellationToken ct)
     {
-        TaskHelper.CancelAndDispose(ref _hoverPopupCts);
+        CancelPendingPopup();
         TaskHelper.CancelAndDispose(ref _autoHideCts);
+
+        if (StickyPopup && _popup.IsVisible) return;
 
         if (_popup.IsVisible)
             await _popup.HideAsync(ct);
@@ -200,16 +233,45 @@ public sealed class InteractionHandler : IDisposable
             await ReRenderSubtitleAsync(ct);
     }
 
-    private async Task ShowPopupAfterDelayAsync(WordRect hit, CancellationTokenSource linkedCts)
+    /// A popup rendered clear of the subtitle puts a whole other line between itself and the word it
+    /// describes, so reaching it means sweeping over words nobody asked about. Only a word the
+    /// pointer settles on for the switch delay takes the popup over.
+    private int HoverDelayFor(WordRect hit)
+        => _popup.IsVisible && _popupWord is { } shown && OnDifferentLine(shown, hit)
+            ? _settings.PopupSwitchDelayMs
+            : _settings.PopupHoverDelayMs;
+
+    private static bool OnDifferentLine(WordRect a, WordRect b)
+        => Math.Abs(a.Y - b.Y) > Math.Max(a.Height, b.Height) * 0.5f;
+
+    private void CancelPendingPopup()
+    {
+        TaskHelper.CancelAndDispose(ref _hoverPopupCts);
+        _pendingWord = null;
+    }
+
+    private async Task ShowPopupAfterDelayAsync(WordRect hit, int delayMs, CancellationTokenSource linkedCts)
     {
         try
         {
-            await Task.Delay(_settings.PopupHoverDelayMs, linkedCts.Token);
+            await Task.Delay(delayMs, linkedCts.Token);
+
+            // The pointer can be inside the popup by the time a cross-line switch comes due, and
+            // swapping the entry out from under it is what the delay exists to prevent.
+            if (_popup.IsMouseOverPopup) return;
+
             if (_currentEntry is not null)
+            {
                 await _popup.ShowAsync(hit, _currentEntry, linkedCts.Token);
+                _popupWord = hit;
+            }
         }
         catch (OperationCanceledException) { }
-        finally { linkedCts.Dispose(); }
+        finally
+        {
+            if (_pendingWord?.TokenIndex == hit.TokenIndex) _pendingWord = null;
+            linkedCts.Dispose();
+        }
     }
 
     private async Task HidePopupAfterDelayAsync(CancellationTokenSource linkedCts)
@@ -226,44 +288,75 @@ public sealed class InteractionHandler : IDisposable
 
     private async Task HandleClickAsync(double mx, double my, CancellationToken ct)
     {
-        if (_currentEntry is null || _osd.Height <= 0) return;
-
-        if (_popup.IsVisible && !_popup.IsMouseOverPopup)
-            await _popup.HideAsync(ct);
+        var entry = _currentEntry;
+        if (entry is null || _osd.Height <= 0)
+        {
+            await PassThroughAsync(ClickPassthrough, ct);
+            return;
+        }
 
         var hit = _hitTest.HitTest(mx, my, _osd.Width, _osd.Height);
         _logger.LogDebug("Click ({MX:F0},{MY:F0}) → {Result}",
             mx, my, hit is not null ? $"word {hit.WordId}" : "MISS");
-        if (hit is null) return;
 
-        if (_settings.PopupTrigger != PopupTriggerMode.Hover)
-            await _popup.ShowAsync(hit, _currentEntry, ct);
+        if (hit is not null)
+        {
+            if (_settings.PopupTrigger != PopupTriggerMode.Hover)
+            {
+                await _popup.ShowAsync(hit, entry, ct);
+                _popupWord = hit;
+            }
+            return;
+        }
+
+        bool dismissed = _popup.IsVisible && !_popup.IsMouseOverPopup;
+        if (dismissed)
+        {
+            await _popup.HideAsync(ct);
+            await _autopause.OnHoverLeaveAsync(_ipc, ct);
+
+            // Pointer moves are ignored while a sticky popup is up, so the reveal it left behind
+            // would outlive it until the next move if it were not undone here.
+            if (_blur.UpdateHover(null, entry) && _currentText is not null)
+                await ReRenderSubtitleAsync(ct);
+        }
+
+        // The click that closes a sticky popup is spent on closing it; passing it on as well would
+        // pause or fullscreen behind the entry the user just dismissed.
+        if (!dismissed || !StickyPopup)
+            await PassThroughAsync(ClickPassthrough, ct);
     }
 
     private async Task HandleDoubleClickAsync(double mx, double my, CancellationToken ct)
     {
-        if (_currentEntry is null || _currentText is null) return;
-
+        var entry = _currentEntry;
+        var text = _currentText;
         var action = _settings.DoubleClickAction;
-        if (action == DoubleClickAction.None) return;
 
-        var hit = _hitTest.HitTest(mx, my, _osd.Width, _osd.Height);
-        if (hit is null) return;
+        var hit = entry is not null && text is not null && action != DoubleClickAction.None
+            ? _hitTest.HitTest(mx, my, _osd.Width, _osd.Height)
+            : null;
+
+        if (hit is null || entry is null || text is null)
+        {
+            await PassThroughAsync(DoubleClickPassthrough, ct);
+            return;
+        }
 
         if (action == DoubleClickAction.Mine)
         {
             await _mining.MineWithConfiguredDeckAsync(
-                hit.WordId, hit.ReadingIndex, _currentText, _ipc, ct);
+                hit.WordId, hit.ReadingIndex, text, _ipc, ct);
         }
         else
         {
             var key = (hit.WordId, hit.ReadingIndex);
-            var state = _currentEntry.VocabStates.GetValueOrDefault(key);
+            var state = entry.VocabStates.GetValueOrDefault(key);
             if (state == KnownState.Redundant) return;
 
             await _wordAction.SetStateAsync(
                 hit.WordId, hit.ReadingIndex, PopupAction.NeverForget,
-                state, _currentText, _ipc, ct);
+                state, text, _ipc, ct);
         }
 
         if (_settings.PopupHideAfterAction && _popup.IsVisible)

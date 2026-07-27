@@ -31,6 +31,12 @@ public sealed class PluginSettings
     [JsonPropertyName("subtitle_margin_y")]
     public int SubtitleMarginY { get; set; } = 50;
 
+    /// Unwraps the file's own line breaks, but only for lines whose joined form still fits the
+    /// screen: a line libass had to re-wrap would break the hit-test rectangles, which assume one
+    /// rendered line per break in the text.
+    [JsonPropertyName("subtitle_single_line")]
+    public bool SubtitleSingleLine { get; set; }
+
     [JsonPropertyName("theme")]
     public string Theme { get; set; } = "Default";
 
@@ -72,6 +78,11 @@ public sealed class PluginSettings
 
     [JsonPropertyName("popup_hover_delay_ms")]
     public int PopupHoverDelayMs { get; set; } = 30;
+
+    /// Dwell a word on another subtitle line has to earn before it takes an open popup over, so
+    /// the words swept on the way to that popup do not each claim it in passing.
+    [JsonPropertyName("popup_switch_delay_ms")]
+    public int PopupSwitchDelayMs { get; set; } = 250;
 
     [JsonPropertyName("popup_auto_hide")]
     public bool PopupAutoHide { get; set; } = true;
@@ -136,6 +147,18 @@ public sealed class PluginSettings
 
     [JsonPropertyName("popup_position")]
     public PopupPositionMode PopupPosition { get; set; } = PopupPositionMode.AboveSubtitle;
+
+    /// Corner or edge the popup pins to, used only by the Fixed position mode.
+    [JsonPropertyName("popup_fixed_anchor")]
+    public PopupAnchor PopupFixedAnchor { get; set; } = PopupAnchor.TopCenter;
+
+    /// Distance from the pointer, or from the screen edge when anchored. Has to clear half the
+    /// subtitle line height for the popup not to sit on the text the pointer is inside of.
+    [JsonPropertyName("popup_offset_px")]
+    public int PopupOffsetPx { get; set; } = 60;
+
+    [JsonPropertyName("popup_max_width_px")]
+    public int PopupMaxWidthPx { get; set; } = 550;
 
     [JsonPropertyName("popup_font_scale")]
     public double PopupFontScale { get; set; } = 0.85;

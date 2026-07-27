@@ -14,9 +14,36 @@ end
 local plugin_started = false
 local mouse_tracking = false
 local last_mouse_x, last_mouse_y = -1, -1
-local last_click_time = 0
-local last_click_x, last_click_y = 0, 0
 local was_in_zone = false
+
+local owned_keys = { MBTN_LEFT = true, MBTN_LEFT_DBL = true }
+
+-- mpv hands a key to exactly one binding, so claiming these two means the command they would
+-- otherwise have run has to be replayed here whenever the plugin reports the click hit no word.
+-- Window dragging needs no entry: mpv drives it from the raw button state, not from the binding.
+local fallback = { MBTN_LEFT_DBL = "cycle fullscreen" }
+
+local function resolve_fallbacks()
+    local bindings = mp.get_property_native("input-bindings")
+    if not bindings then return end
+
+    local best = {}
+    for _, b in ipairs(bindings) do
+        local prio = b.priority or 0
+        -- Script-owned bindings (the OSC seek bar) sit in sections that are only enabled while the
+        -- pointer is over them, so replaying their commands from here would fire them out of context.
+        if owned_keys[b.key] and not b.owner and b.cmd and b.cmd ~= "" and prio >= 0
+           and (not best[b.key] or prio >= best[b.key]) then
+            best[b.key] = prio
+            fallback[b.key] = b.cmd
+        end
+    end
+end
+
+local function run_fallback(key)
+    local cmd = fallback[key]
+    if cmd then mp.command(cmd) end
+end
 
 local function initialize()
     if plugin_started then return end
@@ -59,24 +86,26 @@ local function send(...)
 end
 
 local function on_mouse_left(tbl)
-    if not plugin_started then return end
     local mx, my = mp.get_mouse_pos()
 
     if tbl.event == "down" then
-        send("jiten-mouse-left-press", tostring(mx), tostring(my))
-
-        local now = mp.get_time()
-        if now - last_click_time < 0.3
-           and math.abs(mx - last_click_x) < 10
-           and math.abs(my - last_click_y) < 10 then
-            send("jiten-double-click", tostring(mx), tostring(my))
+        if not plugin_started then
+            run_fallback("MBTN_LEFT")
+            return
         end
-        last_click_time = now
-        last_click_x = mx
-        last_click_y = my
-    elseif tbl.event == "up" then
+        send("jiten-mouse-left-press", tostring(mx), tostring(my))
+    elseif tbl.event == "up" and plugin_started then
         send("jiten-mouse-left-release", tostring(mx), tostring(my))
     end
+end
+
+local function on_double_click()
+    if not plugin_started then
+        run_fallback("MBTN_LEFT_DBL")
+        return
+    end
+    local mx, my = mp.get_mouse_pos()
+    send("jiten-double-click", tostring(mx), tostring(my))
 end
 
 local mouse_timer = nil
@@ -120,7 +149,13 @@ end
 
 mp.register_event("file-loaded", initialize)
 mp.add_key_binding("F10", "jiten-mpv-toggle", initialize)
-mp.add_key_binding("MBTN_LEFT", "jiten-mouse-left", on_mouse_left, { complex = true })
+
+resolve_fallbacks()
+mp.add_forced_key_binding("MBTN_LEFT", "jiten-mouse-left", on_mouse_left, { complex = true })
+mp.add_forced_key_binding("MBTN_LEFT_DBL", "jiten-mouse-dbl", on_double_click)
+
+mp.register_script_message("jiten-passthrough-click", function() run_fallback("MBTN_LEFT") end)
+mp.register_script_message("jiten-passthrough-dbl", function() run_fallback("MBTN_LEFT_DBL") end)
 
 mp.observe_property("osd-height", "number", function(_, val)
     if val and val > 0 then osd_height = val end

@@ -61,6 +61,9 @@ public sealed record PopupData
     public int PopupBgOpacity { get; init; } = 200;
     public double FontScale { get; init; } = 1.0;
     public PopupPositionMode PositionMode { get; init; } = PopupPositionMode.AboveSubtitle;
+    public PopupAnchor FixedAnchor { get; init; } = PopupAnchor.TopCenter;
+    public int OffsetPx { get; init; } = 60;
+    public int MaxWidthPx { get; init; } = 550;
 }
 
 public sealed record DeckOption(int DeckId, string Name);

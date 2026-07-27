@@ -111,7 +111,10 @@ public sealed class PopupDataBuilder(PluginSettings settings, MiningService mini
             PopupBgColor = settings.PopupBgColor,
             PopupBgOpacity = settings.PopupBgOpacity,
             FontScale = settings.PopupFontScale,
-            PositionMode = settings.PopupPosition
+            PositionMode = settings.PopupPosition,
+            FixedAnchor = settings.PopupFixedAnchor,
+            OffsetPx = settings.PopupOffsetPx,
+            MaxWidthPx = settings.PopupMaxWidthPx
         };
     }
 }

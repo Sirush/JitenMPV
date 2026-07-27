@@ -42,6 +42,7 @@ public partial class SettingsViewModel : ViewModelBase
     [ObservableProperty] private int _subtitleAlignment;
     [ObservableProperty] private int _subtitleMarginX;
     [ObservableProperty] private int _subtitleMarginY;
+    [ObservableProperty] private bool _subtitleSingleLine;
 
     [ObservableProperty] private bool _iPlusOneEnabled;
     [ObservableProperty] private int _iPlusOneMinTokens;
@@ -65,10 +66,14 @@ public partial class SettingsViewModel : ViewModelBase
 
     [ObservableProperty] private PopupTriggerMode _popupTrigger;
     [ObservableProperty] private int _popupHoverDelayMs;
+    [ObservableProperty] private int _popupSwitchDelayMs;
     [ObservableProperty] private bool _popupAutoHide;
     [ObservableProperty] private int _popupAutoHideDelayMs;
     [ObservableProperty] private bool _popupHideAfterAction;
     [ObservableProperty] private PopupPositionMode _popupPosition;
+    [ObservableProperty] private PopupAnchor _popupFixedAnchor;
+    [ObservableProperty] private int _popupOffsetPx;
+    [ObservableProperty] private int _popupMaxWidthPx;
     [ObservableProperty] private double _popupFontScale;
     [ObservableProperty] private int _popupBgOpacity;
     [ObservableProperty] private string _popupBgColor = "";
@@ -225,6 +230,17 @@ public partial class SettingsViewModel : ViewModelBase
         DoubleClickAction.None, DoubleClickAction.Master, DoubleClickAction.Mine
     ];
 
+    public ObservableCollection<PopupAnchor> PopupAnchors { get; } =
+    [
+        PopupAnchor.TopLeft, PopupAnchor.TopCenter, PopupAnchor.TopRight,
+        PopupAnchor.BottomLeft, PopupAnchor.BottomCenter, PopupAnchor.BottomRight
+    ];
+
+    public bool IsFixedPopupPosition => PopupPosition == PopupPositionMode.Fixed;
+
+    partial void OnPopupPositionChanged(PopupPositionMode value)
+        => OnPropertyChanged(nameof(IsFixedPopupPosition));
+
     [ObservableProperty] private bool _pitchColoringEnabled;
     [ObservableProperty] private PitchIndicatorMode _pitchIndicator;
     [ObservableProperty]
@@ -283,6 +299,7 @@ public partial class SettingsViewModel : ViewModelBase
         SubtitleAlignment = s.SubtitleAlignment;
         SubtitleMarginX = s.SubtitleMarginX;
         SubtitleMarginY = s.SubtitleMarginY;
+        SubtitleSingleLine = s.SubtitleSingleLine;
         IPlusOneEnabled = s.IPlusOneEnabled;
         IPlusOneMinTokens = s.IPlusOneMinTokens;
         IPlusOneMaxFrequencyRank = s.IPlusOneMaxFrequencyRank;
@@ -296,10 +313,14 @@ public partial class SettingsViewModel : ViewModelBase
         ApplyBlurStates(s.BlurStates);
         PopupTrigger = s.PopupTrigger;
         PopupHoverDelayMs = s.PopupHoverDelayMs;
+        PopupSwitchDelayMs = s.PopupSwitchDelayMs;
         PopupAutoHide = s.PopupAutoHide;
         PopupAutoHideDelayMs = s.PopupAutoHideDelayMs;
         PopupHideAfterAction = s.PopupHideAfterAction;
         PopupPosition = s.PopupPosition;
+        PopupFixedAnchor = s.PopupFixedAnchor;
+        PopupOffsetPx = s.PopupOffsetPx;
+        PopupMaxWidthPx = s.PopupMaxWidthPx;
         PopupFontScale = s.PopupFontScale;
         PopupBgOpacity = OpacityToPercent(s.PopupBgOpacity);
         PopupBgColor = s.PopupBgColor;
@@ -456,6 +477,7 @@ public partial class SettingsViewModel : ViewModelBase
             SubtitleAlignment = SubtitleAlignment,
             SubtitleMarginX = SubtitleMarginX,
             SubtitleMarginY = SubtitleMarginY,
+            SubtitleSingleLine = SubtitleSingleLine,
             IPlusOneEnabled = IPlusOneEnabled,
             IPlusOneMinTokens = IPlusOneMinTokens,
             IPlusOneMaxFrequencyRank = IPlusOneMaxFrequencyRank,
@@ -469,10 +491,14 @@ public partial class SettingsViewModel : ViewModelBase
             BlurStates = blurStates,
             PopupTrigger = PopupTrigger,
             PopupHoverDelayMs = PopupHoverDelayMs,
+            PopupSwitchDelayMs = PopupSwitchDelayMs,
             PopupAutoHide = PopupAutoHide,
             PopupAutoHideDelayMs = PopupAutoHideDelayMs,
             PopupHideAfterAction = PopupHideAfterAction,
             PopupPosition = PopupPosition,
+            PopupFixedAnchor = PopupFixedAnchor,
+            PopupOffsetPx = PopupOffsetPx,
+            PopupMaxWidthPx = PopupMaxWidthPx,
             PopupFontScale = PopupFontScale,
             PopupBgOpacity = PercentToOpacity(PopupBgOpacity),
             PopupBgColor = PopupBgColor,
@@ -815,6 +841,7 @@ public partial class SettingsViewModel : ViewModelBase
                 SubtitleAlignment = defaults.SubtitleAlignment;
                 SubtitleMarginX = defaults.SubtitleMarginX;
                 SubtitleMarginY = defaults.SubtitleMarginY;
+                SubtitleSingleLine = defaults.SubtitleSingleLine;
                 CustomStateStyles.Clear();
                 break;
             case 2:
@@ -846,10 +873,14 @@ public partial class SettingsViewModel : ViewModelBase
             case 4:
                 PopupTrigger = defaults.PopupTrigger;
                 PopupHoverDelayMs = defaults.PopupHoverDelayMs;
+                PopupSwitchDelayMs = defaults.PopupSwitchDelayMs;
                 PopupAutoHide = defaults.PopupAutoHide;
                 PopupAutoHideDelayMs = defaults.PopupAutoHideDelayMs;
                 PopupHideAfterAction = defaults.PopupHideAfterAction;
                 PopupPosition = defaults.PopupPosition;
+                PopupFixedAnchor = defaults.PopupFixedAnchor;
+                PopupOffsetPx = defaults.PopupOffsetPx;
+                PopupMaxWidthPx = defaults.PopupMaxWidthPx;
                 PopupFontScale = defaults.PopupFontScale;
                 PopupBgOpacity = OpacityToPercent(defaults.PopupBgOpacity);
                 PopupBgColor = defaults.PopupBgColor;

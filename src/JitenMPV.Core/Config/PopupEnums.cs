@@ -14,7 +14,21 @@ public enum PopupTriggerMode
 public enum PopupPositionMode
 {
     AboveSubtitle,
-    BelowSubtitle
+    BelowSubtitle,
+
+    /// Pins the popup to PopupFixedAnchor instead of following the pointer.
+    Fixed
+}
+
+[JsonConverter(typeof(PopupAnchorConverter))]
+public enum PopupAnchor
+{
+    TopLeft,
+    TopCenter,
+    TopRight,
+    BottomLeft,
+    BottomCenter,
+    BottomRight
 }
 
 [JsonConverter(typeof(PitchIndicatorModeConverter))]
@@ -74,3 +88,4 @@ internal sealed class MediaImageSourceConverter() : JsonStringEnumConverter<Medi
 internal sealed class MediaSubtitleBurnConverter() : JsonStringEnumConverter<MediaSubtitleBurn>(JsonNamingPolicy.KebabCaseLower);
 internal sealed class PopupTriggerModeConverter() : JsonStringEnumConverter<PopupTriggerMode>(JsonNamingPolicy.KebabCaseLower);
 internal sealed class PopupPositionModeConverter() : JsonStringEnumConverter<PopupPositionMode>(JsonNamingPolicy.KebabCaseLower);
+internal sealed class PopupAnchorConverter() : JsonStringEnumConverter<PopupAnchor>(JsonNamingPolicy.KebabCaseLower);

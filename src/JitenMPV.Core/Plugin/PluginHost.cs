@@ -42,6 +42,7 @@ public sealed class PluginHost(
     private volatile BlurHoverManager? _blurManager;
     private volatile StatusOverlay? _statusOverlay;
     private volatile SubtitleMeasurer? _measurer;
+    private volatile SubtitleLineJoiner? _lineJoiner;
     private volatile JitenApiClient? _apiClient;
     private volatile MpvIpcClient? _ipcClient;
     private volatile KeybindManager? _keybindManager;
@@ -51,6 +52,10 @@ public sealed class PluginHost(
     private volatile MediaCaptureCoordinator? _mediaCapture;
     private volatile bool _wasPausedBeforeSettings;
     private volatile string? _currentSubtitleText;
+
+    /// The line as mpv gave it, kept so the joined form can be recomputed when a setting that
+    /// decides whether it fits changes under a subtitle already on screen.
+    private volatile string? _currentSubtitleRaw;
 
     public event Action? OpenSettingsRequested;
 
@@ -100,6 +105,7 @@ public sealed class PluginHost(
         _blurManager?.UpdateBlurStates(newSettings);
         _statusOverlay?.UpdateSettings(newSettings);
         _measurer?.UpdateSettings(newSettings);
+        _lineJoiner?.UpdateSettings(newSettings);
         _miningService?.UpdateSettings(newSettings);
         _rotationService?.UpdateSettings(newSettings);
         _mediaCapture?.UpdateSettings(newSettings);
@@ -123,14 +129,21 @@ public sealed class PluginHost(
             _ = RunSafe(() => ipc.SendScriptMessageAsync("jiten_mpv", "jiten-set-mouse-zone",
                 newSettings.MouseZonePercent.ToString(), CancellationToken.None));
 
-            var text = _currentSubtitleText;
-            if (!string.IsNullOrWhiteSpace(text))
+            var raw = _currentSubtitleRaw;
+            if (!string.IsNullOrWhiteSpace(raw))
             {
                 var colorizer = _colorizer;
                 var measurer = _measurer;
                 var interaction = _interactionHandler;
+                var joiner = _lineJoiner;
                 _ = TaskHelper.RunSafe(async () =>
                 {
+                    var text = joiner is null
+                        ? raw
+                        : await joiner.ResolveAsync(raw, ipc, CancellationToken.None);
+                    if (_currentSubtitleRaw != raw) return;
+                    _currentSubtitleText = text;
+
                     var (ass, entry) = await colorizer.ColorizeAsync(text, CancellationToken.None);
 
                     // A subtitle change during the round trip means this overlay and layout are
@@ -247,6 +260,8 @@ public sealed class PluginHost(
             apiClient, parseCache, logger, settings.PreparseBatchSize, timeline, settings);
         var measurer = new SubtitleMeasurer(settings, osd);
         _measurer = measurer;
+        var lineJoiner = new SubtitleLineJoiner(settings, osd);
+        _lineJoiner = lineJoiner;
 
         var hitTest = new HitTestService();
         var blurManager = new BlurHoverManager(settings);
@@ -317,7 +332,7 @@ public sealed class PluginHost(
                 var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
                 _currentSubtitleCts = linkedCts;
                 _ = OnSubtitleChangedAsync(text, ipcClient, colorizer,
-                    measurer, interaction, linkedCts.Token)
+                    measurer, interaction, lineJoiner, linkedCts.Token)
                     .ContinueWith(_ => linkedCts.Dispose(), TaskScheduler.Default);
             };
 
@@ -481,10 +496,12 @@ public sealed class PluginHost(
         string? text, MpvIpcClient ipcClient,
         SubtitleColorizer colorizer,
         SubtitleMeasurer measurer, InteractionHandler interaction,
+        SubtitleLineJoiner joiner,
         CancellationToken ct)
     {
         try
         {
+            _currentSubtitleRaw = text;
             _currentSubtitleText = text;
 
             if (string.IsNullOrWhiteSpace(text))
@@ -495,18 +512,24 @@ public sealed class PluginHost(
                 return;
             }
 
-            var (ass, entry) = await colorizer.ColorizeAsync(text, ct);
+            var display = await joiner.ResolveAsync(text, ipcClient, ct);
+
+            // The fit measurement is a round trip, so a newer line can already own these fields.
+            if (_currentSubtitleRaw != text) return;
+            _currentSubtitleText = display;
+
+            var (ass, entry) = await colorizer.ColorizeAsync(display, ct);
 
             var showTask = ipcClient.ShowOverlayAsync(SubtitleOverlayId, ass, ct);
             var measureTask = entry is not null
-                ? measurer.MeasureAsync(text, entry, ipcClient, ct)
+                ? measurer.MeasureAsync(display, entry, ipcClient, ct)
                 : Task.FromResult<List<WordRect>>([]);
 
             await Task.WhenAll(showTask, measureTask);
             var layout = measureTask.Result;
 
             await RenderPitchUnderlinesAsync(entry, layout, ipcClient, ct);
-            await interaction.OnSubtitleRenderedAsync(text, entry, layout, ct);
+            await interaction.OnSubtitleRenderedAsync(display, entry, layout, ct);
         }
         catch (OperationCanceledException) { }
         catch (Exception ex)

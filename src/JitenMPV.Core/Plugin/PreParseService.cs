@@ -109,12 +109,21 @@ public sealed class PreParseService(
         }
     }
 
-    private static List<string> ExtractUniqueTexts(List<SubtitleCue> cues)
-        => cues
-            .Select(c => c.Text)
+    /// The parse cache is keyed by the exact string that gets rendered, so with single-line mode on
+    /// both forms are seeded: which one a cue ends up displaying is only known once its joined width
+    /// has been measured against the screen.
+    private List<string> ExtractUniqueTexts(List<SubtitleCue> cues)
+    {
+        var texts = cues.Select(c => c.Text);
+
+        if (settings?.SubtitleSingleLine == true)
+            texts = texts.SelectMany(t => new[] { t, SubtitleLineJoiner.Join(t) });
+
+        return texts
             .Where(t => !string.IsNullOrWhiteSpace(t) && JapaneseDetector.ContainsJapanese(t))
             .Distinct()
             .ToList();
+    }
 
     private async Task BatchParseTextsAsync(List<string> texts, CancellationToken ct)
     {
