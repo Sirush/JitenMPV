@@ -43,6 +43,18 @@
       <Setter Property="Margin" Value="0,4,0,4" />
     </Style>
 
+    <!-- Label/field pairs in a two-column grid. The fixed field width keeps the spinner buttons
+         from squeezing the text box until the value is clipped. -->
+    <Style Selector="TextBlock.field-label">
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Foreground" Value="#a1a1aa" />
+      <Setter Property="FontSize" Value="13" />
+    </Style>
+    <Style Selector="NumericUpDown.field">
+      <Setter Property="Width" Value="160" />
+      <Setter Property="HorizontalAlignment" Value="Left" />
+    </Style>
+
     <Style Selector="Button.accent">
       <Setter Property="Background" Value="#c084fc" />
       <Setter Property="Foreground" Value="#18181b" />
@@ -77,14 +89,17 @@
           <ListBoxItem Content="General" />
           <ListBoxItem Content="Appearance" />
           <ListBoxItem Content="Features" />
+          <ListBoxItem Content="Media" />
           <ListBoxItem Content="Popup" />
           <ListBoxItem Content="Keybinds" />
           <ListBoxItem Content="Advanced" />
         </ListBox>
       </Border>
 
-      <ScrollViewer Grid.Column="1" Padding="24,16" x:Name="ContentScroll">
-        <Panel>
+      <!-- Inset lives on the content, not on the ScrollViewer: ScrollViewer.Padding shrinks the
+           viewport without growing the extent, leaving the last 32px permanently unreachable. -->
+      <ScrollViewer Grid.Column="1" x:Name="ContentScroll">
+        <Panel Margin="24,16">
 
           <!-- ═══════ GENERAL TAB ═══════ -->
           <StackPanel IsVisible="{Binding SelectedTabIndex, Converter={StaticResource ParseEquals}, ConverterParameter=0}"
@@ -93,15 +108,22 @@
 
             <StackPanel Spacing="4">
               <TextBlock Text="API Key" Foreground="#a1a1aa" FontSize="13" FontWeight="Medium" />
-              <Grid ColumnDefinitions="*,Auto">
+              <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="4">
                 <TextBox Text="{Binding ApiKey}"
                          RevealPassword="{Binding IsApiKeyVisible}"
                          PasswordChar="*"
-                         Watermark="Enter your jiten.moe API key" />
-                <Button Grid.Column="1" Content="Show" Margin="4,0,0,0"
+                         PlaceholderText="Enter your jiten.moe API key" />
+                <Button Grid.Column="1" Content="Show"
                         Classes="secondary"
                         Command="{Binding ToggleApiKeyVisibilityCommand}" />
+                <Button Grid.Column="2" Content="Test"
+                        Classes="secondary"
+                        Command="{Binding TestApiKeyCommand}"
+                        IsEnabled="{Binding !IsTestingApiKey}" />
               </Grid>
+              <TextBlock Text="{Binding ApiKeyStatus}" FontSize="12"
+                         Foreground="{Binding ApiKeyStatusColor, Converter={StaticResource StringToBrush}}"
+                         IsVisible="{Binding ApiKeyStatus, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
               <TextBlock Text="Get your API key from jiten.moe/settings"
                          FontSize="11" Foreground="#71717a" />
             </StackPanel>
@@ -527,8 +549,205 @@
             </Border>
           </StackPanel>
 
-          <!-- ═══════ POPUP TAB ═══════ -->
+          <!-- ═══════ MEDIA TAB ═══════ -->
           <StackPanel IsVisible="{Binding SelectedTabIndex, Converter={StaticResource ParseEquals}, ConverterParameter=3}"
+                      Spacing="16">
+            <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
+              <TextBlock Text="Media" FontSize="20" FontWeight="Bold" Foreground="#ffffff"
+                         VerticalAlignment="Center" />
+              <Border Grid.Column="1" Background="#27272a" CornerRadius="6" Padding="10,4"
+                      VerticalAlignment="Center">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                  <TextBlock Text="{Binding JitenPlusTierLabel}"
+                             FontSize="12" Foreground="#d4d4d8" />
+                  <TextBlock Text="{Binding JitenPlusQuotaLabel}" FontSize="12" Foreground="#71717a"
+                             IsVisible="{Binding JitenPlusQuotaLabel, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                </StackPanel>
+              </Border>
+              <Button Grid.Column="2" Content="Refresh" Classes="secondary"
+                      Command="{Binding RefreshJitenPlusCommand}"
+                      IsEnabled="{Binding !IsCheckingJitenPlus}" />
+            </Grid>
+
+            <TextBlock Text="{Binding JitenPlusStatus}" FontSize="12" Foreground="#a1a1aa"
+                       IsVisible="{Binding JitenPlusStatus, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+
+            <Border Background="#2a1a1a" BorderBrush="#7f1d1d" BorderThickness="1" CornerRadius="8"
+                    Padding="12" IsVisible="{Binding JitenPlusLocked}">
+              <TextBlock Text="Jiten+ required. Adding screenshots and audio to your cards needs Jiten+. The free trial is enough."
+                         Foreground="#fca5a5" FontSize="13" TextWrapping="Wrap" />
+            </Border>
+
+            <StackPanel Spacing="16" IsEnabled="{Binding !JitenPlusLocked}">
+              <Border Background="#18181b" BorderBrush="#3f3f46" BorderThickness="1"
+                      CornerRadius="8" Padding="16">
+                <StackPanel Spacing="8">
+                  <StackPanel Orientation="Horizontal" Spacing="8">
+                    <ToggleSwitch IsChecked="{Binding MediaCaptureEnabled}" />
+                    <TextBlock Text="Add a screenshot and audio when mining" FontSize="15" FontWeight="Medium"
+                               VerticalAlignment="Center" Foreground="#ffffff" />
+                  </StackPanel>
+                  <TextBlock Text="Saves a screenshot and the spoken line onto the card, will display during SRS study"
+                             FontSize="12" Foreground="#71717a" TextWrapping="Wrap" />
+
+                  <StackPanel IsVisible="{Binding MediaCaptureEnabled}" Margin="16,4,0,0" Spacing="10">
+
+                    <CheckBox Content="Screenshot" IsChecked="{Binding MediaCaptureImage}" />
+                    <StackPanel IsVisible="{Binding MediaCaptureImage}" Margin="24,0,0,0" Spacing="8">
+                      <TextBlock Text="Screenshot capture position" Foreground="#a1a1aa" FontSize="13" FontWeight="Medium" />
+                      <StackPanel Orientation="Horizontal" Spacing="16">
+                        <RadioButton GroupName="MediaImageSource" Content="Current position"
+                                     IsChecked="{Binding MediaImageSource, Converter={StaticResource ParseEquals}, ConverterParameter=MpvFrame}" />
+                        <RadioButton GroupName="MediaImageSource" Content="Middle of the subtitles"
+                                     IsChecked="{Binding MediaImageSource, Converter={StaticResource ParseEquals}, ConverterParameter=SubtitleMidpoint}" />
+                      </StackPanel>
+
+                      <TextBlock Text="Subtitle display" Foreground="#a1a1aa" FontSize="13" FontWeight="Medium" />
+                      <StackPanel Orientation="Horizontal" Spacing="16">
+                        <RadioButton GroupName="MediaSubtitleBurn" Content="None"
+                                     IsChecked="{Binding MediaSubtitleBurn, Converter={StaticResource ParseEquals}, ConverterParameter=None}" />
+                        <RadioButton GroupName="MediaSubtitleBurn" Content="No highlights"
+                                     IsChecked="{Binding MediaSubtitleBurn, Converter={StaticResource ParseEquals}, ConverterParameter=Original}" />
+                        <RadioButton GroupName="MediaSubtitleBurn" Content="With knowledge highlights"
+                                     IsChecked="{Binding MediaSubtitleBurn, Converter={StaticResource ParseEquals}, ConverterParameter=Colored}" />
+                      </StackPanel>
+                      <TextBlock Text="{Binding SubtitleBurnHint}" FontSize="11" Foreground="#71717a"
+                                 TextWrapping="Wrap" />
+                      <TextBlock Text="{Binding SubtitleBurnWarning}" FontSize="11" Foreground="#fca5a5"
+                                 TextWrapping="Wrap"
+                                 IsVisible="{Binding SubtitleBurnWarning, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+
+                      <CheckBox Content="Use a short clip instead" IsChecked="{Binding MediaCaptureImageAnimated}" />
+                      <TextBlock Text="A short looping video as long as the subtitle line. Uses more storage space."
+                                 FontSize="11" Foreground="#71717a" TextWrapping="Wrap"
+                                 Margin="24,0,0,0" />
+                    </StackPanel>
+
+                    <CheckBox Content="Audio" IsChecked="{Binding MediaCaptureAudio}" />
+                    <StackPanel IsVisible="{Binding MediaCaptureAudio}" Margin="24,0,0,0" Spacing="8">
+                      <CheckBox Content="Stereo" IsChecked="{Binding MediaAudioStereo}" />
+                      <CheckBox Content="Trim the silence automatically" IsChecked="{Binding MediaAudioAutoTrim}" />
+                    </StackPanel>
+
+                    <CheckBox Content="Check everything before saving" IsChecked="{Binding MediaReviewPopup}" />
+                    <Grid ColumnDefinitions="130,*" IsVisible="{Binding MediaReviewPopup}"
+                          Margin="24,0,0,0">
+                      <TextBlock Text="Nearby lines" Classes="field-label" />
+                      <NumericUpDown Grid.Column="1" Classes="field"
+                                     Value="{Binding MediaSentenceContextLines}"
+                                     Minimum="0" Maximum="5" Increment="1" />
+                    </Grid>
+                    <TextBlock Text="How many lines before and after you can add to the sentence"
+                               FontSize="11" Foreground="#71717a" TextWrapping="Wrap"
+                               Margin="24,0,0,0" IsVisible="{Binding MediaReviewPopup}" />
+
+                    <TextBlock Text="Warn before replacing the existing media from a card" Foreground="#a1a1aa"
+                               FontSize="13" FontWeight="Medium" Margin="0,4,0,0" />
+                    <StackPanel Orientation="Horizontal" Spacing="16">
+                      <RadioButton GroupName="MediaOverwrite" Content="Always"
+                                   IsChecked="{Binding MediaOverwritePrompt, Converter={StaticResource ParseEquals}, ConverterParameter=Always}" />
+                      <RadioButton GroupName="MediaOverwrite" Content="Once per session"
+                                   IsChecked="{Binding MediaOverwritePrompt, Converter={StaticResource ParseEquals}, ConverterParameter=OncePerSession}" />
+                      <RadioButton GroupName="MediaOverwrite" Content="Never"
+                                   IsChecked="{Binding MediaOverwritePrompt, Converter={StaticResource ParseEquals}, ConverterParameter=Never}" />
+                    </StackPanel>
+                  </StackPanel>
+                </StackPanel>
+              </Border>
+
+              <Expander Header="Advanced" HorizontalAlignment="Stretch">
+                <StackPanel Spacing="12" Margin="0,8,0,0">
+                  <TextBlock Text="SCREENSHOT" Classes="section-header" />
+                  <Grid ColumnDefinitions="150,*" RowDefinitions="Auto,Auto" RowSpacing="8">
+                    <TextBlock Text="Longest side (px)" Classes="field-label" />
+                    <NumericUpDown Grid.Column="1" Classes="field"
+                                   Value="{Binding MediaImageMaxEdge}"
+                                   Minimum="640" Maximum="2560" Increment="80" />
+                    <TextBlock Grid.Row="1" Text="Quality" Classes="field-label" />
+                    <NumericUpDown Grid.Row="1" Grid.Column="1" Classes="field"
+                                   Value="{Binding MediaImageQuality}"
+                                   Minimum="40" Maximum="100" Increment="1" />
+                  </Grid>
+                  <TextBlock Text="Screenshots are resized to 1600px (longest size) and Webp 82 quality by the Jiten API."
+                             FontSize="11" Foreground="#71717a" TextWrapping="Wrap" />
+
+                  <Border Classes="divider" />
+
+                  <TextBlock Text="CLIPS" Classes="section-header" />
+                  <Grid ColumnDefinitions="150,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="8">
+                    <TextBlock Text="Framerate" Classes="field-label" />
+                    <NumericUpDown Grid.Column="1" Classes="field"
+                                   Value="{Binding MediaAnimTargetFps}"
+                                   Minimum="5" Maximum="30" Increment="1" />
+                    <TextBlock Grid.Row="1" Text="Width" Classes="field-label" />
+                    <NumericUpDown Grid.Row="1" Grid.Column="1" Classes="field"
+                                   Value="{Binding MediaAnimMaxEdge}"
+                                   Minimum="320" Maximum="1600" Increment="80" />
+                    <TextBlock Grid.Row="2" Text="Frame limit" Classes="field-label" />
+                    <NumericUpDown Grid.Row="2" Grid.Column="1" Classes="field"
+                                   Value="{Binding MediaAnimMaxFrames}"
+                                   Minimum="30" Maximum="300" Increment="10" />
+                    <TextBlock Grid.Row="3" Text="Quality" Classes="field-label" />
+                    <NumericUpDown Grid.Row="3" Grid.Column="1" Classes="field" Value="{Binding MediaAnimQuality}"
+                                   Minimum="20" Maximum="100" Increment="5" />
+                    <TextBlock Grid.Row="4" Text="Size limit (MB)" Classes="field-label" />
+                    <NumericUpDown Grid.Row="4" Grid.Column="1" Classes="field"
+                                   Value="{Binding MediaAnimMaxMb}"
+                                   Minimum="0.5" Maximum="5" Increment="0.5" FormatString="0.0" />
+                    <TextBlock Grid.Row="5" Text="Lowest smoothness" Classes="field-label" />
+                    <NumericUpDown Grid.Row="5" Grid.Column="1" Classes="field"
+                                   Value="{Binding MediaAnimMinFps}"
+                                   Minimum="1" Maximum="30" Increment="1" />
+                  </Grid>
+                  <TextBlock Text="Automatically tries lower settings if the clip would be too big."
+                             FontSize="11" Foreground="#71717a" TextWrapping="Wrap" />
+
+                  <Border Classes="divider" />
+
+                  <TextBlock Text="AUDIO" Classes="section-header" />
+                  <Grid ColumnDefinitions="150,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto" RowSpacing="8">
+                    <TextBlock Text="Bitrate (kbps)" Classes="field-label" />
+                    <NumericUpDown Grid.Column="1" Classes="field"
+                                   Value="{Binding MediaAudioBitrateKbps}"
+                                   Minimum="24" Maximum="128" Increment="8" />
+                    <TextBlock Grid.Row="1" Text="Extra at the start" Classes="field-label" />
+                    <NumericUpDown Grid.Row="1" Grid.Column="1" Classes="field"
+                                   Value="{Binding MediaAudioPadLeadMs}"
+                                   Minimum="0" Maximum="2000" Increment="50" />
+                    <TextBlock Grid.Row="2" Text="Extra at the end" Classes="field-label" />
+                    <NumericUpDown Grid.Row="2" Grid.Column="1" Classes="field"
+                                   Value="{Binding MediaAudioPadTailMs}"
+                                   Minimum="0" Maximum="2000" Increment="50" />
+                    <TextBlock Grid.Row="3" Text="Size limit (MB)" Classes="field-label" />
+                    <NumericUpDown Grid.Row="3" Grid.Column="1" Classes="field" Value="{Binding MediaAudioMaxMb}"
+                                   Minimum="0.2" Maximum="5" Increment="0.5" FormatString="0.0" />
+                    <TextBlock Grid.Row="4" Text="Room to trim (s)" Classes="field-label" />
+                    <NumericUpDown Grid.Row="4" Grid.Column="1" Classes="field"
+                                   Value="{Binding MediaAudioWindowMarginSeconds}"
+                                   Minimum="1" Maximum="20" Increment="1" FormatString="0.0" />
+                  </Grid>
+                  <TextBlock Text="Milliseconds of extra audio kept on each side of the line, and how far past it you can drag when trimming by hand"
+                             FontSize="11" Foreground="#71717a" TextWrapping="Wrap" />
+
+                  <Border Classes="divider" />
+
+                  <TextBlock Text="FFMPEG" Classes="section-header" />
+                  <TextBlock Text="Screenshots work without it, but clips and audio need it."
+                             FontSize="11" Foreground="#71717a" TextWrapping="Wrap" />
+                  <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                    <TextBox Text="{Binding FfmpegPath}" PlaceholderText="Leave blank to find it automatically" />
+                    <Button Grid.Column="1" Content="Check" Classes="secondary"
+                            Command="{Binding DetectFfmpegCommand}" />
+                  </Grid>
+                  <TextBlock Text="{Binding FfmpegStatus}" FontSize="11" Foreground="#71717a"
+                             IsVisible="{Binding FfmpegStatus, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                </StackPanel>
+              </Expander>
+            </StackPanel>
+          </StackPanel>
+
+          <!-- ═══════ POPUP TAB ═══════ -->
+          <StackPanel IsVisible="{Binding SelectedTabIndex, Converter={StaticResource ParseEquals}, ConverterParameter=4}"
                       Spacing="16">
             <TextBlock Text="Popup" FontSize="20" FontWeight="Bold" Foreground="#ffffff" />
 
@@ -632,11 +851,37 @@
               <CheckBox Content="Show review buttons" IsChecked="{Binding PopupShowReview}" />
               <CheckBox Content="Use two grades (Pass/Fail) instead of four"
                         IsChecked="{Binding PopupUseTwoGrades}" />
+              <CheckBox Content="Move the action buttons below the entry"
+                        IsChecked="{Binding PopupMoveActionsBottom}" />
+              <CheckBox Content="Open the word on jiten.moe when its headword is clicked"
+                        IsChecked="{Binding PopupHeadwordLink}" />
+            </StackPanel>
+
+            <Border Classes="divider" />
+
+            <StackPanel Spacing="8">
+              <TextBlock Text="STATE ROTATION" Classes="section-header" />
+              <TextBlock Text="Rotates a word through its Master, Blacklist and Suspended states with a single pair of keys."
+                         FontSize="12" Foreground="#71717a" TextWrapping="Wrap" />
+              <CheckBox Content="Rotate states" IsChecked="{Binding RotateStatesEnabled}" />
+              <StackPanel IsVisible="{Binding RotateStatesEnabled}" Margin="24,0,0,0" Spacing="4">
+                <CheckBox Content="Show rotate actions" IsChecked="{Binding PopupShowRotateActions}" />
+                <CheckBox Content="Rotate cycle" IsChecked="{Binding RotateCycle}" />
+                <TextBlock Text="Stays among the states instead of passing through a cleared step"
+                           FontSize="11" Foreground="#71717a" TextWrapping="Wrap" Margin="28,0,0,0" />
+                <TextBlock Text="States in the cycle" Foreground="#a1a1aa" FontSize="13"
+                           FontWeight="Medium" Margin="0,4,0,0" />
+                <WrapPanel Orientation="Horizontal">
+                  <CheckBox Content="Master" IsChecked="{Binding RotateCycleNeverForget}" Margin="0,0,16,0" />
+                  <CheckBox Content="Blacklist" IsChecked="{Binding RotateCycleBlacklist}" Margin="0,0,16,0" />
+                  <CheckBox Content="Suspended" IsChecked="{Binding RotateCycleSuspended}" />
+                </WrapPanel>
+              </StackPanel>
             </StackPanel>
           </StackPanel>
 
           <!-- ═══════ KEYBINDS TAB ═══════ -->
-          <StackPanel IsVisible="{Binding SelectedTabIndex, Converter={StaticResource ParseEquals}, ConverterParameter=4}"
+          <StackPanel IsVisible="{Binding SelectedTabIndex, Converter={StaticResource ParseEquals}, ConverterParameter=5}"
                       Spacing="16">
             <TextBlock Text="Keybinds" FontSize="20" FontWeight="Bold" Foreground="#ffffff" />
             <TextBlock Text="Keyboard shortcuts for popup actions (only active when popup is visible)"
@@ -672,7 +917,7 @@
                     CornerRadius="8" Padding="16">
               <StackPanel Spacing="12">
                 <TextBlock Text="STATE ACTIONS" Classes="section-header" />
-                <Grid ColumnDefinitions="120,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto" RowSpacing="8">
+                <Grid ColumnDefinitions="120,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="8">
                   <TextBlock Text="Never Forget" VerticalAlignment="Center" Foreground="#a1a1aa" />
                   <TextBox Grid.Column="1" Text="{Binding KeybindNeverForget}"
                            PlaceholderText="e.g. m" MaxWidth="200" HorizontalAlignment="Left" />
@@ -692,13 +937,21 @@
                   <TextBlock Grid.Row="4" Text="Mine to list" VerticalAlignment="Center" Foreground="#a1a1aa" />
                   <TextBox Grid.Row="4" Grid.Column="1" Text="{Binding KeybindMine}"
                            PlaceholderText="e.g. d" MaxWidth="200" HorizontalAlignment="Left" />
+
+                  <TextBlock Grid.Row="5" Text="Rotate forward" VerticalAlignment="Center" Foreground="#a1a1aa" />
+                  <TextBox Grid.Row="5" Grid.Column="1" Text="{Binding KeybindRotateForward}"
+                           PlaceholderText="unbound" MaxWidth="200" HorizontalAlignment="Left" />
+
+                  <TextBlock Grid.Row="6" Text="Rotate backward" VerticalAlignment="Center" Foreground="#a1a1aa" />
+                  <TextBox Grid.Row="6" Grid.Column="1" Text="{Binding KeybindRotateBackward}"
+                           PlaceholderText="unbound" MaxWidth="200" HorizontalAlignment="Left" />
                 </Grid>
               </StackPanel>
             </Border>
           </StackPanel>
 
           <!-- ═══════ ADVANCED TAB ═══════ -->
-          <StackPanel IsVisible="{Binding SelectedTabIndex, Converter={StaticResource ParseEquals}, ConverterParameter=5}"
+          <StackPanel IsVisible="{Binding SelectedTabIndex, Converter={StaticResource ParseEquals}, ConverterParameter=6}"
                       Spacing="16">
             <TextBlock Text="Advanced" FontSize="20" FontWeight="Bold" Foreground="#ffffff" />
 

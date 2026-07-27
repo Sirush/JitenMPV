@@ -66,6 +66,36 @@
             <Setter Property="Foreground" Value="#66BB66"/>
             <Setter Property="BorderBrush" Value="#66BB66"/>
         </Style>
+        <Style Selector="Button.state-rotate">
+            <Setter Property="Foreground" Value="#AAAAAA"/>
+            <Setter Property="BorderBrush" Value="#666666"/>
+        </Style>
+        <Style Selector="Button.state-rotate:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="#1AAAAAAA"/>
+        </Style>
+
+        <Style Selector="Button.headword">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="MinWidth" Value="0"/>
+            <Setter Property="MinHeight" Value="0"/>
+            <Setter Property="FontSize" Value="28"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+        </Style>
+        <Style Selector="Button.headword /template/ ContentPresenter">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Foreground" Value="White"/>
+        </Style>
+        <Style Selector="Button.headword:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="Transparent"/>
+        </Style>
+        <Style Selector="Button.headword.linkable">
+            <Setter Property="Cursor" Value="Hand"/>
+        </Style>
+        <Style Selector="Button.headword.linkable:pointerover /template/ ContentPresenter">
+            <Setter Property="Foreground" Value="#D8B9FA"/>
+        </Style>
         <Style Selector="Button.deck-item">
             <Setter Property="Background" Value="Transparent"/>
             <Setter Property="BorderThickness" Value="0"/>
@@ -121,6 +151,76 @@
         </Style>
     </Window.Styles>
 
+    <Window.Resources>
+        <!-- Instantiated both above and below the entry; only the one the setting selects is visible. -->
+        <DataTemplate x:Key="ActionsTemplate" DataType="vm:PopupViewModel">
+            <StackPanel Spacing="6">
+                <WrapPanel IsVisible="{Binding ShowActionRow}">
+                    <Button Classes="state-btn state-neverforget"
+                            Content="{Binding MasterLabel}"
+                            Command="{Binding NeverForgetCommand}"
+                            IsVisible="{Binding ShowNeverForget}"
+                            Margin="0,0,6,4"/>
+                    <Button Classes="state-btn state-blacklist"
+                            Content="{Binding BlacklistLabel}"
+                            Command="{Binding BlacklistCommand}"
+                            IsVisible="{Binding ShowBlacklist}"
+                            Margin="0,0,6,4"/>
+                    <Button Classes="state-btn state-suspend"
+                            Content="{Binding SuspendLabel}"
+                            Command="{Binding SuspendCommand}"
+                            IsVisible="{Binding ShowSuspend}"
+                            Margin="0,0,6,4"/>
+                    <Button Classes="state-btn state-forget"
+                            Content="Forget"
+                            Command="{Binding ForgetCommand}"
+                            IsVisible="{Binding ShowForget}"
+                            Margin="0,0,6,4"/>
+                    <Button Classes="state-btn state-mine"
+                            Classes.mined="{Binding IsMined}"
+                            Content="{Binding MineLabel}"
+                            Command="{Binding MineCommand}"
+                            IsVisible="{Binding ShowMine}"
+                            Margin="0,0,6,4"/>
+                </WrapPanel>
+                <Border IsVisible="{Binding IsDeckPickerOpen}"
+                        Background="#22FFFFFF" CornerRadius="6" Padding="2" Margin="0,0,0,4">
+                    <ScrollViewer MaxHeight="180" HorizontalScrollBarVisibility="Disabled">
+                        <ItemsControl ItemsSource="{Binding DeckOptions}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate DataType="vm:DeckOptionItem">
+                                    <Button Classes="deck-item"
+                                            Content="{Binding Name}"
+                                            Command="{Binding Pick}"
+                                            CommandParameter="{Binding Option}"/>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+                </Border>
+                <StackPanel Orientation="Horizontal" Spacing="6"
+                            IsVisible="{Binding ShowRotate}">
+                    <Button Classes="state-btn state-rotate"
+                            Content="{Binding RotateBackwardLabel}"
+                            Command="{Binding RotateBackwardCommand}"
+                            IsVisible="{Binding ShowRotateBackward}"/>
+                    <Button Classes="state-btn state-rotate"
+                            Content="{Binding RotateForwardLabel}"
+                            Command="{Binding RotateForwardCommand}"/>
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" Spacing="6"
+                            IsVisible="{Binding ShowReview}">
+                    <Button Classes="review-btn review-again" Content="again" Command="{Binding ReviewAgainCommand}"/>
+                    <Button Classes="review-btn review-hard" Content="hard" Command="{Binding ReviewHardCommand}"
+                            IsVisible="{Binding ShowHardEasy}"/>
+                    <Button Classes="review-btn review-good" Content="good" Command="{Binding ReviewGoodCommand}"/>
+                    <Button Classes="review-btn review-easy" Content="easy" Command="{Binding ReviewEasyCommand}"
+                            IsVisible="{Binding ShowHardEasy}"/>
+                </StackPanel>
+            </StackPanel>
+        </DataTemplate>
+    </Window.Resources>
+
     <LayoutTransformControl x:Name="ScaleContainer">
     <Border Background="{Binding PopupBackground}"
             CornerRadius="8"
@@ -128,72 +228,40 @@
             BorderBrush="#444444"
             BorderThickness="1">
         <StackPanel Spacing="6" MinWidth="220">
-            <WrapPanel IsVisible="{Binding ShowActionRow}">
-                <Button Classes="state-btn state-neverforget"
-                        Content="{Binding MasterLabel}"
-                        Command="{Binding NeverForgetCommand}"
-                        IsVisible="{Binding ShowNeverForget}"
-                        Margin="0,0,6,4"/>
-                <Button Classes="state-btn state-blacklist"
-                        Content="{Binding BlacklistLabel}"
-                        Command="{Binding BlacklistCommand}"
-                        IsVisible="{Binding ShowBlacklist}"
-                        Margin="0,0,6,4"/>
-                <Button Classes="state-btn state-suspend"
-                        Content="{Binding SuspendLabel}"
-                        Command="{Binding SuspendCommand}"
-                        IsVisible="{Binding ShowSuspend}"
-                        Margin="0,0,6,4"/>
-                <Button Classes="state-btn state-forget"
-                        Content="Forget"
-                        Command="{Binding ForgetCommand}"
-                        IsVisible="{Binding ShowForget}"
-                        Margin="0,0,6,4"/>
-                <Button Classes="state-btn state-mine"
-                        Classes.mined="{Binding IsMined}"
-                        Content="{Binding MineLabel}"
-                        Command="{Binding MineCommand}"
-                        IsVisible="{Binding ShowMine}"
-                        Margin="0,0,6,4"/>
-            </WrapPanel>
-            <Border IsVisible="{Binding IsDeckPickerOpen}"
-                    Background="#22FFFFFF" CornerRadius="6" Padding="2" Margin="0,0,0,4">
-                <ScrollViewer MaxHeight="180" HorizontalScrollBarVisibility="Disabled">
-                    <ItemsControl ItemsSource="{Binding DeckOptions}">
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate DataType="vm:DeckOptionItem">
-                                <Button Classes="deck-item"
-                                        Content="{Binding Name}"
-                                        Command="{Binding Pick}"
-                                        CommandParameter="{Binding Option}"/>
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
-                </ScrollViewer>
-            </Border>
-            <StackPanel Orientation="Horizontal" Spacing="6"
-                        IsVisible="{Binding ShowReview}">
-                <Button Classes="review-btn review-again" Content="again" Command="{Binding ReviewAgainCommand}"/>
-                <Button Classes="review-btn review-hard" Content="hard" Command="{Binding ReviewHardCommand}"
-                        IsVisible="{Binding ShowHardEasy}"/>
-                <Button Classes="review-btn review-good" Content="good" Command="{Binding ReviewGoodCommand}"/>
-                <Button Classes="review-btn review-easy" Content="easy" Command="{Binding ReviewEasyCommand}"
-                        IsVisible="{Binding ShowHardEasy}"/>
-            </StackPanel>
+            <ContentControl Content="{Binding}"
+                            ContentTemplate="{StaticResource ActionsTemplate}"
+                            IsVisible="{Binding !MoveActionsBottom}"/>
             <TextBlock Text="{Binding Reading}"
                        FontSize="14" Foreground="#AAAAAA"
                        IsVisible="{Binding ShowReading}"
                        Margin="0,2,0,-4"/>
             <Grid ColumnDefinitions="*,Auto">
-                <TextBlock Grid.Column="0"
-                           Text="{Binding Spelling}"
-                           FontSize="28" FontWeight="Bold"
-                           Foreground="White"/>
+                <Button Grid.Column="0"
+                        Classes="headword"
+                        Classes.linkable="{Binding HeadwordLinkEnabled}"
+                        Content="{Binding Spelling}"
+                        Command="{Binding OpenHeadwordCommand}"
+                        HorizontalAlignment="Left" VerticalAlignment="Top"/>
                 <StackPanel Grid.Column="1" VerticalAlignment="Top"
                             HorizontalAlignment="Right" Spacing="2">
-                    <TextBlock Text="{Binding StateLabel}"
-                               FontSize="13" Foreground="#888888"
-                               HorizontalAlignment="Right"/>
+                    <ItemsControl ItemsSource="{Binding StateBadges}" HorizontalAlignment="Right">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <WrapPanel HorizontalAlignment="Right"/>
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate DataType="vm:StateBadgeItem">
+                                <Border CornerRadius="3" Padding="5,1" Margin="4,0,0,2"
+                                        BorderThickness="1"
+                                        BorderBrush="{Binding Foreground}">
+                                    <TextBlock Text="{Binding Text}"
+                                               FontSize="11"
+                                               Foreground="{Binding Foreground}"/>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
                     <TextBlock FontSize="13" Foreground="#666666"
                                IsVisible="{Binding ShowFrequency}"
                                HorizontalAlignment="Right">
@@ -261,6 +329,10 @@
                 </ItemsControl.ItemTemplate>
             </ItemsControl>
 
+            <ContentControl Content="{Binding}"
+                            ContentTemplate="{StaticResource ActionsTemplate}"
+                            IsVisible="{Binding MoveActionsBottom}"
+                            Margin="0,4,0,0"/>
         </StackPanel>
     </Border>
     </LayoutTransformControl>

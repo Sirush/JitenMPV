@@ -16,8 +16,12 @@ public sealed record PopupData
     public required IReadOnlyList<IReadOnlyList<string>> MeaningsChunks { get; init; }
     public required IReadOnlyList<string> Conjugations { get; init; }
     public KnownState State { get; init; }
+    /// Every state the card holds (a scheduled young card is both Due and Young).
+    public required IReadOnlyList<KnownState> States { get; init; }
     public int WordId { get; init; }
     public byte ReadingIndex { get; init; }
+    public bool HeadwordLinkEnabled { get; init; }
+    public bool MoveActionsBottom { get; init; }
 
     // State action visibility
     public bool ShowNeverForget { get; init; }
@@ -38,6 +42,13 @@ public sealed record PopupData
     public bool ShowDeckPicker => ShowMine && DeckOptions.Count > 0;
 
     public IReadOnlyList<DeckMembershipRow> DeckMembership { get; init; } = [];
+
+    // State rotation
+    public bool ShowRotate { get; init; }
+    public string RotateForwardLabel { get; init; } = "";
+    public string RotateBackwardLabel { get; init; } = "";
+    /// False when the cycle is one slot long, where both directions would land on the same state.
+    public bool ShowRotateBackward { get; init; }
 
     // Review visibility
     public bool ShowReview { get; init; }

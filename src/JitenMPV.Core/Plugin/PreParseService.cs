@@ -1,16 +1,24 @@
-using System.Diagnostics;
-using System.Text.Json;
+using System.Text;
 using JitenMPV.Core.Api;
 using JitenMPV.Core.Cache;
+using JitenMPV.Core.Config;
+using JitenMPV.Core.Media;
 using JitenMPV.Core.Mpv;
 using JitenMPV.Core.Subtitles;
 using Microsoft.Extensions.Logging;
 
 namespace JitenMPV.Core.Plugin;
 
-public sealed class PreParseService(JitenApiClient api, ParseCache cache, ILogger logger, int maxBatchChars = 60_000)
+public sealed class PreParseService(
+    JitenApiClient api,
+    ParseCache cache,
+    ILogger logger,
+    int maxBatchChars = 60_000,
+    SubtitleTimeline? timeline = null,
+    PluginSettings? settings = null)
 {
-    private static volatile int _ffmpegState; // 0=unchecked, 1=available, -1=unavailable
+    private static readonly TimeSpan ExtractTimeout = TimeSpan.FromMinutes(2);
+
     public async Task PreParseFileAsync(string subtitleFilePath, CancellationToken ct)
     {
         logger.LogInformation("Pre-parsing external subtitle file: {Path}", subtitleFilePath);
@@ -27,6 +35,7 @@ public sealed class PreParseService(JitenApiClient api, ParseCache cache, ILogge
         }
 
         logger.LogInformation("Parsed {Count} cues from file", cues.Count);
+        timeline?.Load(cues);
         await BatchParseTextsAsync(ExtractUniqueTexts(cues), ct);
     }
 
@@ -44,7 +53,8 @@ public sealed class PreParseService(JitenApiClient api, ParseCache cache, ILogge
 
     private async Task<List<string>?> TryFfmpegExtract(MpvIpcClient ipc, CancellationToken ct)
     {
-        if (!await IsFfmpegAvailableAsync(ct))
+        var ffmpeg = await FfmpegLocator.ResolveAsync(settings?.FfmpegPath, ct);
+        if (ffmpeg is null)
         {
             logger.LogInformation("ffmpeg not available, skipping embedded subtitle extraction");
             return null;
@@ -61,116 +71,42 @@ public sealed class PreParseService(JitenApiClient api, ParseCache cache, ILogge
                 videoPath = Path.Combine(workDir, videoPath);
         }
 
-        var subIndex = await GetSubTrackIndex(ipc, ct);
+        // Guessing stream 0 here would seed the timeline with whatever language happens to be first,
+        // and the mining sentence is taken from that timeline.
+        if (await TrackIndexResolver.FindAsync(ipc, "sub", ct) is not { } subIndex)
+        {
+            logger.LogInformation("No subtitle track selected, skipping embedded extraction");
+            return null;
+        }
 
         try
         {
-            var srtOutput = await RunFfmpegExtract(videoPath, subIndex, ct);
+            var runner = new FfmpegRunner(ffmpeg, logger);
+            var (result, bytes) = await runner.RunCaptureStdoutAsync(
+                ["-i", videoPath, "-map", $"0:s:{subIndex}", "-f", "srt", "-"],
+                ExtractTimeout, ct);
+
+            if (!result.Succeeded)
+            {
+                logger.LogWarning("ffmpeg extraction failed (exit {Code}): {Error}",
+                    result.ExitCode, result.ErrorTail);
+                return null;
+            }
+
+            var srtOutput = Encoding.UTF8.GetString(bytes);
             if (string.IsNullOrWhiteSpace(srtOutput))
                 return null;
 
             var cues = SrtParser.Parse(srtOutput);
             logger.LogInformation("Extracted {Count} subtitle cues via ffmpeg", cues.Count);
+            timeline?.Load(cues);
             return ExtractUniqueTexts(cues);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             logger.LogWarning("ffmpeg extraction failed: {Message}", ex.Message);
             return null;
         }
-    }
-
-    private static async Task<bool> IsFfmpegAvailableAsync(CancellationToken ct)
-    {
-        if (_ffmpegState != 0)
-            return _ffmpegState == 1;
-
-        try
-        {
-            using var proc = new Process();
-            proc.StartInfo = new ProcessStartInfo
-            {
-                FileName = "ffmpeg",
-                Arguments = "-version",
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
-            proc.Start();
-            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            timeoutCts.CancelAfter(3000);
-            await proc.WaitForExitAsync(timeoutCts.Token);
-            _ffmpegState = proc.ExitCode == 0 ? 1 : -1;
-        }
-        catch
-        {
-            _ffmpegState = -1;
-        }
-
-        return _ffmpegState == 1;
-    }
-
-    private static async Task<int> GetSubTrackIndex(MpvIpcClient ipc, CancellationToken ct)
-    {
-        try
-        {
-            var trackList = await ipc.GetPropertyRawAsync("track-list", ct);
-            if (trackList is { ValueKind: JsonValueKind.Array })
-            {
-                int subIdx = 0;
-                foreach (var track in trackList.Value.EnumerateArray())
-                {
-                    if (track.TryGetProperty("type", out var typeEl) && typeEl.GetString() != "sub")
-                        continue;
-
-                    if (track.TryGetProperty("selected", out var sel) && sel.GetBoolean())
-                        return subIdx;
-
-                    subIdx++;
-                }
-            }
-        }
-        catch { }
-        return 0;
-    }
-
-    private static async Task<string> RunFfmpegExtract(string videoPath, int subIndex, CancellationToken ct)
-    {
-        using var proc = new Process();
-        proc.StartInfo = new ProcessStartInfo
-        {
-            FileName = "ffmpeg",
-            UseShellExecute = false,
-            CreateNoWindow = true,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true
-        };
-        proc.StartInfo.ArgumentList.Add("-i");
-        proc.StartInfo.ArgumentList.Add(videoPath);
-        proc.StartInfo.ArgumentList.Add("-map");
-        proc.StartInfo.ArgumentList.Add($"0:s:{subIndex}");
-        proc.StartInfo.ArgumentList.Add("-f");
-        proc.StartInfo.ArgumentList.Add("srt");
-        proc.StartInfo.ArgumentList.Add("-");
-
-        proc.Start();
-
-        var outputTask = proc.StandardOutput.ReadToEndAsync(ct);
-        var errorTask = proc.StandardError.ReadToEndAsync(ct);
-
-        await proc.WaitForExitAsync(ct);
-
-        var output = await outputTask;
-        var error = await errorTask;
-
-        if (proc.ExitCode != 0)
-        {
-            var lastLines = string.Join('\n', error.Split('\n').Where(l => l.Length > 0).TakeLast(5));
-            throw new InvalidOperationException($"ffmpeg exit {proc.ExitCode}: {lastLines}");
-        }
-
-        return output;
     }
 
     private static List<string> ExtractUniqueTexts(List<SubtitleCue> cues)

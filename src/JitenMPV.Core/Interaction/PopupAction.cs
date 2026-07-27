@@ -10,7 +10,9 @@ public enum PopupAction
     ReviewHard,
     ReviewGood,
     ReviewEasy,
-    Mine
+    Mine,
+    RotateForward,
+    RotateBackward
 }
 
 public static class PopupActions

@@ -2,6 +2,7 @@ using JitenMPV.Core.Api;
 using JitenMPV.Core.Api.Models;
 using JitenMPV.Core.Cache;
 using JitenMPV.Core.Config;
+using JitenMPV.Core.Media;
 using JitenMPV.Core.Mpv;
 using JitenMPV.Core.Plugin;
 using Microsoft.Extensions.Logging;
@@ -13,7 +14,8 @@ public sealed class MiningService(
     ParseCache cache,
     StatusOverlay status,
     PluginSettings settings,
-    ILogger logger)
+    ILogger logger,
+    MediaCaptureCoordinator? media = null)
 {
     private volatile PluginSettings _settings = settings;
     private volatile IReadOnlyList<StudyDeckListItem> _decks = [];
@@ -84,6 +86,9 @@ public sealed class MiningService(
             _wordListIds = [..decks
                 .Where(d => d.DeckType == StudyDeckType.StaticWordList)
                 .Select(d => d.UserStudyDeckId)];
+            if (media is not null)
+                media.DeckOptions = [..decks.Select(d => new MiningDeckOption(d.UserStudyDeckId, d.Name))];
+
             logger.LogInformation("Loaded {Count} study decks ({Lists} word lists)",
                 decks.Count, _wordListIds.Count);
         }
@@ -136,7 +141,33 @@ public sealed class MiningService(
             return false;
         }
 
-        if (s.MiningSkipIfPresent && IsAlreadyInDeck(wordId, readingIndex, deckId, word))
+        var alreadyInDeck = s.MiningSkipIfPresent && IsAlreadyInDeck(wordId, readingIndex, deckId, word);
+
+        var surfaceForm = ResolveSurfaceForm(entry, subtitleText, wordId, readingIndex);
+        string? sentence = null;
+        string? source = null;
+
+        if (s.MiningCaptureSentence && subtitleText is not null && entry is not null)
+        {
+            sentence = SentenceFormatter.WithMarkers(subtitleText, surfaceForm);
+            source = await GetMediaTitleAsync(ipc, ct);
+        }
+
+        // Capture runs even when the deck add is skipped: re-mining an existing card is how a user
+        // replaces a bad screenshot or a clipped audio sample.
+        var capture = media is not null
+            ? await media.CaptureAndConfirmAsync(new MediaCaptureRequest(
+                wordId, readingIndex, surfaceForm, subtitleText, spelling,
+                word?.Reading ?? "", deckId), ipc, ct)
+            : MediaCaptureResult.Disabled;
+
+        if (capture.Cancelled) return false;
+        if (capture.Sentence is not null) sentence = capture.Sentence;
+        if (capture.DeckId is { } chosenDeck) deckId = chosenDeck;
+
+        await ReportCaptureGateAsync(capture, ipc, ct);
+
+        if (alreadyInDeck && !capture.HasUploads)
         {
             if (reportSkip)
             {
@@ -148,30 +179,20 @@ public sealed class MiningService(
             return false;
         }
 
-        string? sentence = null;
-        string? source = null;
-
-        if (s.MiningCaptureSentence && subtitleText is not null && entry is not null)
-        {
-            var token = entry.Tokens.Find(t => t.WordId == wordId && t.ReadingIndex == readingIndex);
-            var surfaceForm = token is not null && token.Start + token.Length <= subtitleText.Length
-                ? subtitleText.Substring(token.Start, token.Length)
-                : null;
-
-            sentence = SentenceFormatter.WithMarkers(subtitleText, surfaceForm);
-            source = await GetMediaTitleAsync(ipc, ct);
-        }
-
         try
         {
-            await api.AddToStudyDeckAsync(deckId, wordId, readingIndex, sentence, source, ct);
+            if (!alreadyInDeck)
+                await api.AddToStudyDeckAsync(deckId, wordId, readingIndex, sentence, source, ct);
 
             lock (_minedLock)
                 _mined.Add((wordId, readingIndex, deckId));
 
-            var deckName = DeckName(deckId);
+            var upload = capture.HasUploads && media is not null
+                ? await media.UploadAsync(wordId, readingIndex, capture, ct)
+                : null;
+
             await status.ShowAsync(ipc,
-                deckName is not null ? $"{spelling} to {deckName}" : $"{spelling}: mined", 2000, ct);
+                BuildStatusMessage(spelling, DeckName(deckId), alreadyInDeck, capture, upload), 2500, ct);
 
             logger.LogInformation("Mined word {WordId}:{ReadingIndex} into deck {DeckId}",
                 wordId, readingIndex, deckId);
@@ -189,6 +210,70 @@ public sealed class MiningService(
             return false;
         }
     }
+
+    private static string? ResolveSurfaceForm(
+        ParseCacheEntry? entry, string? subtitleText, int wordId, byte readingIndex)
+    {
+        if (entry is null || subtitleText is null) return null;
+
+        var token = entry.Tokens.Find(t => t.WordId == wordId && t.ReadingIndex == readingIndex);
+        return token is not null && token.Start + token.Length <= subtitleText.Length
+            ? subtitleText.Substring(token.Start, token.Length)
+            : null;
+    }
+
+    /// One notice per session for the two gates a user can act on; everything else stays silent so
+    /// the feedback for the mine they asked for is not talked over.
+    private async Task ReportCaptureGateAsync(
+        MediaCaptureResult capture, MpvIpcClient ipc, CancellationToken ct)
+    {
+        if (media is null) return;
+
+        if (capture.Outcome == MediaCaptureOutcome.NotEntitled && media.ShouldReportNotEntitled())
+            await status.ShowAsync(ipc, "No Jiten+, so nothing was attached", 3000, ct);
+        else if ((capture.Outcome == MediaCaptureOutcome.NoFfmpeg || capture.FfmpegMissing)
+                 && media.ShouldReportNoFfmpeg())
+            await status.ShowAsync(ipc, "Clips and audio need ffmpeg installed", 3000, ct);
+    }
+
+    private static string BuildStatusMessage(
+        string spelling, string? deckName, bool alreadyInDeck,
+        MediaCaptureResult capture, MediaUploadOutcome? upload)
+    {
+        if (upload is { QuotaExceeded: true })
+            return $"Your Jiten+ storage is full ({FormatBytes(upload.MaxBytes)})";
+
+        if (upload is { Revoked: true })
+            return $"{spelling}: mined, but no Jiten+ so nothing was attached";
+
+        if (upload is { ImageAttempted: true, AudioAttempted: true }
+            && upload.ImageUploaded != upload.AudioUploaded)
+        {
+            return upload.ImageUploaded
+                ? $"{spelling}: screenshot saved, audio did not"
+                : $"{spelling}: audio saved, screenshot did not";
+        }
+
+        var badges = upload is null || !upload.AnyUploaded
+            ? ""
+            : " +" + (upload.ImageUploaded ? "\U0001F5BC" : "") + (upload.AudioUploaded ? "\U0001F50A" : "");
+
+        var suffix = capture.AnimationFellBack ? " (screenshot instead of a clip)" : "";
+
+        if (alreadyInDeck)
+            return deckName is not null
+                ? $"{spelling}: already in {deckName}, updated{suffix}"
+                : $"{spelling}: updated{suffix}";
+
+        return deckName is not null
+            ? $"{spelling} to {deckName}{badges}{suffix}"
+            : $"{spelling}: mined{badges}{suffix}";
+    }
+
+    private static string FormatBytes(long bytes)
+        => bytes >= 1024L * 1024 * 1024
+            ? $"{bytes / (1024.0 * 1024 * 1024):0.#} GB"
+            : $"{bytes / (1024.0 * 1024):0.#} MB";
 
     private bool IsAlreadyInDeck(int wordId, byte readingIndex, int deckId, ReaderWord? word)
         => IsMinedTo(wordId, readingIndex, deckId) || word?.StudyDeckIds.Contains(deckId) == true;
@@ -213,5 +298,6 @@ public sealed class MiningService(
     {
         lock (_minedLock)
             _mined.Clear();
+        media?.Reset();
     }
 }

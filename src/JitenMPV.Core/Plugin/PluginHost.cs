@@ -4,21 +4,34 @@ using JitenMPV.Core.Api.Models;
 using JitenMPV.Core.Cache;
 using JitenMPV.Core.Config;
 using JitenMPV.Core.Interaction;
+using JitenMPV.Core.Media;
 using JitenMPV.Core.Mpv;
+using JitenMPV.Core.Plus;
 using JitenMPV.Core.Rendering;
 using JitenMPV.Core.Pitch;
+using JitenMPV.Core.Subtitles;
 using JitenMPV.Core.Theming;
 using Microsoft.Extensions.Logging;
 
 namespace JitenMPV.Core.Plugin;
 
-public sealed class PluginHost(string pipePath, ILogger logger, IPopupPresenter popupPresenter)
+public sealed class PluginHost(
+    string pipePath,
+    ILogger logger,
+    IPopupPresenter popupPresenter,
+    IMiningReviewPresenter? reviewPresenter = null,
+    IMediaOverwritePresenter? overwritePresenter = null)
 {
     internal const int SubtitleOverlayId = 1;
     internal const int PitchUnderlineOverlayId = 2;
     internal const string OpenSettingsMessage = "jiten-open-settings";
 
+    /// mpv reports the new track before it has finished loading it, and a file change fires several
+    /// of these at once; the reload waits this long so it reads a settled track-list exactly once.
+    private static readonly TimeSpan SubtitleSourceSettleDelay = TimeSpan.FromMilliseconds(400);
+
     private CancellationTokenSource? _currentSubtitleCts;
+    private CancellationTokenSource? _preParseCts;
     private volatile PluginSettings? _settings;
     private volatile StyleResolver? _styleResolver;
     private volatile OverlayRenderer? _renderer;
@@ -33,6 +46,9 @@ public sealed class PluginHost(string pipePath, ILogger logger, IPopupPresenter 
     private volatile MpvIpcClient? _ipcClient;
     private volatile KeybindManager? _keybindManager;
     private volatile MiningService? _miningService;
+    private volatile RotationService? _rotationService;
+    private volatile JitenPlusService? _plusService;
+    private volatile MediaCaptureCoordinator? _mediaCapture;
     private volatile bool _wasPausedBeforeSettings;
     private volatile string? _currentSubtitleText;
 
@@ -63,6 +79,7 @@ public sealed class PluginHost(string pipePath, ILogger logger, IPopupPresenter 
     {
         if (_styleResolver is null || _renderer is null || _colorizer is null) return;
 
+        var previous = _settings;
         _settings = newSettings;
 
         _apiClient?.UpdateConnection(newSettings.ApiKey, newSettings.ApiBaseUrl, newSettings.ApiTimeoutSeconds);
@@ -84,6 +101,15 @@ public sealed class PluginHost(string pipePath, ILogger logger, IPopupPresenter 
         _statusOverlay?.UpdateSettings(newSettings);
         _measurer?.UpdateSettings(newSettings);
         _miningService?.UpdateSettings(newSettings);
+        _rotationService?.UpdateSettings(newSettings);
+        _mediaCapture?.UpdateSettings(newSettings);
+
+        if (!string.Equals(previous?.FfmpegPath, newSettings.FfmpegPath, StringComparison.Ordinal))
+            FfmpegLocator.Invalidate();
+
+        if (_plusService is { } plus
+            && (previous?.ApiKey != newSettings.ApiKey || previous?.ApiBaseUrl != newSettings.ApiBaseUrl))
+            _ = RunSafe(() => plus.RefreshAsync(CancellationToken.None));
 
         var (iPlusOne, freqMarker) = BuildDetectors(newSettings);
         _colorizer.UpdateDetectors(iPlusOne, freqMarker);
@@ -216,7 +242,9 @@ public sealed class PluginHost(string pipePath, ILogger logger, IPopupPresenter 
         var (iPlusOne, freqMarker) = BuildDetectors(settings);
         var colorizer = new SubtitleColorizer(apiClient, parseCache, renderer, iPlusOne, freqMarker, logger);
         _colorizer = colorizer;
-        var preParser = new PreParseService(apiClient, parseCache, logger, settings.PreparseBatchSize);
+        var timeline = new SubtitleTimeline();
+        var preParser = new PreParseService(
+            apiClient, parseCache, logger, settings.PreparseBatchSize, timeline, settings);
         var measurer = new SubtitleMeasurer(settings, osd);
         _measurer = measurer;
 
@@ -227,8 +255,19 @@ public sealed class PluginHost(string pipePath, ILogger logger, IPopupPresenter 
         _statusOverlay = statusOverlay;
         var wordAction = new WordActionService(apiClient, parseCache, statusOverlay, logger);
         var reviewService = new InlineReviewService(apiClient, parseCache, statusOverlay, logger);
-        var miningService = new MiningService(apiClient, parseCache, statusOverlay, settings, logger);
+        var plusService = new JitenPlusService(apiClient, logger);
+        _plusService = plusService;
+        var pausingReview = reviewPresenter is null
+            ? null
+            : new PausingReviewPresenter(reviewPresenter, PausePlayback, ResumePlayback);
+        var mediaCapture = new MediaCaptureCoordinator(
+            apiClient, plusService, timeline, settings, logger, pausingReview, overwritePresenter);
+        _mediaCapture = mediaCapture;
+        var miningService = new MiningService(
+            apiClient, parseCache, statusOverlay, settings, logger, mediaCapture);
         _miningService = miningService;
+        var rotationService = new RotationService(settings);
+        _rotationService = rotationService;
         var autopause = new AutopauseService(settings, logger);
         _autopause = autopause;
 
@@ -240,13 +279,22 @@ public sealed class PluginHost(string pipePath, ILogger logger, IPopupPresenter 
             await ipcClient.ConnectAsync(ct);
             logger.LogInformation("Connected to mpv");
 
-            var dataBuilder = new PopupDataBuilder(settings, miningService);
+            var dataBuilder = new PopupDataBuilder(settings, miningService, rotationService);
             _popupDataBuilder = dataBuilder;
             var popupManager = new PopupManager(dataBuilder, popupPresenter);
 
+            // A window screenshot takes every OSD layer with it, so the dictionary popup and the
+            // status line have to be off screen before the shutter and back after it.
+            mediaCapture.PrepareWindowCapture = async token =>
+            {
+                await popupManager.HideAsync(token);
+                await statusOverlay.HideAsync(ipcClient, token);
+            };
+
             using var interaction = new InteractionHandler(
                 ipcClient, hitTest, blurManager, popupManager, autopause,
-                wordAction, reviewService, miningService, colorizer, settings, osd, logger);
+                wordAction, reviewService, miningService, rotationService, colorizer,
+                settings, osd, logger);
             _interactionHandler = interaction;
 
             var keybindManager = new KeybindManager(ipcClient, logger);
@@ -291,6 +339,15 @@ public sealed class PluginHost(string pipePath, ILogger logger, IPopupPresenter 
                 if (changed) renderer.RebuildPreamble();
             };
 
+            if (settings.PreparseEnabled)
+            {
+                ipcClient.PropertyChanged += (name, _) =>
+                {
+                    if (name is "sid" or "path")
+                        ReloadSubtitleSource(ipcClient, preParser, timeline, ct);
+                };
+            }
+
             ipcClient.ScriptMessageReceived += (name, args) =>
             {
                 if (name == OpenSettingsMessage)
@@ -314,6 +371,12 @@ public sealed class PluginHost(string pipePath, ILogger logger, IPopupPresenter 
             await ipcClient.ObservePropertyAsync("osd-width", 2, ct);
             await ipcClient.ObservePropertyAsync("osd-height", 3, ct);
 
+            if (settings.PreparseEnabled)
+            {
+                await ipcClient.ObservePropertyAsync("sid", 4, ct);
+                await ipcClient.ObservePropertyAsync("path", 5, ct);
+            }
+
             var widthTask = ipcClient.GetPropertyAsync<int>("osd-width", ct);
             var heightTask = ipcClient.GetPropertyAsync<int>("osd-height", ct);
             osd.Update(await widthTask, await heightTask);
@@ -333,8 +396,11 @@ public sealed class PluginHost(string pipePath, ILogger logger, IPopupPresenter 
             if (settings.MiningEnabled || settings.PopupShowDeckMembership)
                 _ = RunSafe(() => miningService.RefreshDecksAsync(ct));
 
+            plusService.StartPeriodicRefresh(ct);
+            MediaTempFiles.SweepStale(logger);
+
             if (settings.PreparseEnabled)
-                _ = RunSafe(() => StartPreParseAsync(ipcClient, preParser, ct));
+                ReloadSubtitleSource(ipcClient, preParser, timeline, ct);
 
             logger.LogInformation("JitenMPV plugin running.");
             await readLoop;
@@ -365,7 +431,32 @@ public sealed class PluginHost(string pipePath, ILogger logger, IPopupPresenter 
             catch { }
 
             statusOverlay.Dispose();
+            plusService.Dispose();
         }
+    }
+
+    /// Drops the cues of the previous track before reading the new one: the timeline feeds the sentence
+    /// on a mined card, so stale cues would put another language on it.
+    private void ReloadSubtitleSource(
+        MpvIpcClient ipc, PreParseService preParser, SubtitleTimeline timeline, CancellationToken ct)
+    {
+        TaskHelper.CancelAndDispose(ref _preParseCts);
+        timeline.Clear();
+
+        var linked = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        _preParseCts = linked;
+        _ = RunSafe(async () =>
+        {
+            try
+            {
+                await Task.Delay(SubtitleSourceSettleDelay, linked.Token);
+                await StartPreParseAsync(ipc, preParser, linked.Token);
+            }
+            finally
+            {
+                linked.Dispose();
+            }
+        });
     }
 
     private async Task StartPreParseAsync(MpvIpcClient ipc, PreParseService preParser, CancellationToken ct)

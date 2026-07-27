@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Windows.Input;
 using Avalonia.Media;
@@ -14,6 +15,28 @@ namespace JitenMPV.App.ViewModels;
 public sealed record DeckOptionItem(DeckOption Option, ICommand Pick)
 {
     public string Name => Option.Name;
+}
+
+public sealed record StateBadgeItem(KnownState State)
+{
+    // Matches the Reader extension's $states palette; Young/Mature/Mastered are not in that map,
+    // so they take its learning/known greens.
+    private static readonly Dictionary<KnownState, IBrush> Palette = new()
+    {
+        [KnownState.New] = new SolidColorBrush(Color.Parse("#D8B9FA")),
+        [KnownState.Young] = new SolidColorBrush(Color.Parse("#5EA780")),
+        [KnownState.Mature] = new SolidColorBrush(Color.Parse("#70C000")),
+        [KnownState.Mastered] = new SolidColorBrush(Color.Parse("#70C000")),
+        [KnownState.Blacklisted] = new SolidColorBrush(Color.Parse("#777777")),
+        [KnownState.Due] = new SolidColorBrush(Color.Parse("#FF4500")),
+        [KnownState.Redundant] = new SolidColorBrush(Color.Parse("#4B9FFF")),
+        [KnownState.Suspended] = new SolidColorBrush(Color.Parse("#AAAAAA"))
+    };
+
+    private static readonly IBrush Fallback = new SolidColorBrush(Color.Parse("#BBBBBB"));
+
+    public string Text => State.ToString().ToLowerInvariant();
+    public IBrush Foreground => Palette.GetValueOrDefault(State, Fallback);
 }
 
 public sealed record DeckMembershipItem(DeckMembershipRow Row)
@@ -46,7 +69,9 @@ public partial class PopupViewModel : ViewModelBase
     [ObservableProperty] private string _pitchAccents = "";
     [ObservableProperty] private List<string> _meanings = [];
     [ObservableProperty] private string _conjugation = "";
-    [ObservableProperty] private string _stateLabel = "";
+    [ObservableProperty] private List<StateBadgeItem> _stateBadges = [];
+    [ObservableProperty] private bool _headwordLinkEnabled;
+    [ObservableProperty] private bool _moveActionsBottom;
     [ObservableProperty] private bool _showReading;
     [ObservableProperty] private bool _showFrequency;
     [ObservableProperty] private bool _showPartsOfSpeech;
@@ -74,6 +99,11 @@ public partial class PopupViewModel : ViewModelBase
     [ObservableProperty] private List<DeckMembershipItem> _deckMembership = [];
     [ObservableProperty] private List<DeckOptionItem> _deckOptions = [];
 
+    [ObservableProperty] private bool _showRotate;
+    [ObservableProperty] private bool _showRotateBackward;
+    [ObservableProperty] private string _rotateForwardLabel = "";
+    [ObservableProperty] private string _rotateBackwardLabel = "";
+
     [ObservableProperty] private bool _showReview;
     [ObservableProperty] private bool _showHardEasy;
 
@@ -92,6 +122,10 @@ public partial class PopupViewModel : ViewModelBase
     public ICommand BlacklistCommand { get; }
     public ICommand SuspendCommand { get; }
     public ICommand ForgetCommand { get; }
+
+    public ICommand RotateForwardCommand { get; }
+    public ICommand RotateBackwardCommand { get; }
+    public ICommand OpenHeadwordCommand { get; }
 
     public ICommand ReviewAgainCommand { get; }
     public ICommand ReviewHardCommand { get; }
@@ -118,10 +152,31 @@ public partial class PopupViewModel : ViewModelBase
         BlacklistCommand = new RelayCommand(() => ActionClicked?.Invoke(PopupAction.Blacklist));
         SuspendCommand = new RelayCommand(() => ActionClicked?.Invoke(PopupAction.Suspend));
         ForgetCommand = new RelayCommand(() => ActionClicked?.Invoke(PopupAction.Forget));
+        RotateForwardCommand = new RelayCommand(() => ActionClicked?.Invoke(PopupAction.RotateForward));
+        RotateBackwardCommand = new RelayCommand(() => ActionClicked?.Invoke(PopupAction.RotateBackward));
+        OpenHeadwordCommand = new RelayCommand(OpenHeadword);
         ReviewAgainCommand = new RelayCommand(() => ActionClicked?.Invoke(PopupAction.ReviewAgain));
         ReviewHardCommand = new RelayCommand(() => ActionClicked?.Invoke(PopupAction.ReviewHard));
         ReviewGoodCommand = new RelayCommand(() => ActionClicked?.Invoke(PopupAction.ReviewGood));
         ReviewEasyCommand = new RelayCommand(() => ActionClicked?.Invoke(PopupAction.ReviewEasy));
+    }
+
+    private void OpenHeadword()
+    {
+        if (!HeadwordLinkEnabled || _lastWord is not { } word) return;
+
+        try
+        {
+            Process.Start(new ProcessStartInfo(
+                $"https://jiten.moe/vocabulary/{word.WordId}/{word.ReadingIndex}")
+            {
+                UseShellExecute = true
+            });
+        }
+        catch (Exception)
+        {
+            // No browser association, or the shell refused: nothing useful to show over the video.
+        }
     }
 
     public void Update(PopupData data)
@@ -148,7 +203,9 @@ public partial class PopupViewModel : ViewModelBase
         ShowConjugation = data.Conjugations.Count > 0;
         Conjugation = ShowConjugation ? string.Join(" → ", data.Conjugations) : "";
 
-        StateLabel = data.State.ToString();
+        StateBadges = [..data.States.Select(s => new StateBadgeItem(s))];
+        HeadwordLinkEnabled = data.HeadwordLinkEnabled;
+        MoveActionsBottom = data.MoveActionsBottom;
 
         ShowNeverForget = data.ShowNeverForget;
         ShowBlacklist = data.ShowBlacklist;
@@ -174,6 +231,11 @@ public partial class PopupViewModel : ViewModelBase
         var word = (data.WordId, data.ReadingIndex);
         if (!ShowDeckPicker || _lastWord != word) IsDeckPickerOpen = false;
         _lastWord = word;
+
+        ShowRotate = data.ShowRotate;
+        ShowRotateBackward = data.ShowRotateBackward;
+        RotateForwardLabel = data.RotateForwardLabel;
+        RotateBackwardLabel = data.RotateBackwardLabel;
 
         ShowReview = data.ShowReview;
         ShowHardEasy = !data.UseTwoGrades;

@@ -4,11 +4,18 @@ using JitenMPV.Core.Pitch;
 
 namespace JitenMPV.Core.Interaction;
 
-public sealed class PopupDataBuilder(PluginSettings settings, MiningService mining)
+public sealed class PopupDataBuilder(PluginSettings settings, MiningService mining, RotationService rotation)
 {
     private volatile PluginSettings _settings = settings;
 
     public void UpdateSettings(PluginSettings newSettings) => _settings = newSettings;
+
+    /// The cached ReaderWord is never mutated, so its state array goes stale as soon as an action
+    /// changes the card; from then on only the collapsed state describes it.
+    private static IReadOnlyList<KnownState> ResolveStates(ReaderWord word, KnownState state)
+        => word.KnownState.Count > 0 && KnownStates.Collapse(word.KnownState) == state
+            ? word.KnownState
+            : [state];
 
     private static IReadOnlyList<PitchDiagramRow> BuildDiagrams(ReaderWord word, PluginSettings settings)
     {
@@ -35,8 +42,20 @@ public sealed class PopupDataBuilder(PluginSettings settings, MiningService mini
 
         bool hasCard = state is not KnownState.New;
 
-        // Redundant cards are view-only: they are covered by another card and cannot be mined.
-        bool showMine = settings.MiningEnabled && state != KnownState.Redundant;
+        // A redundant word is covered by another card and has none of its own, so the popup is
+        // view-only for it: every actionable row is hidden regardless of configuration.
+        bool actionable = state != KnownState.Redundant;
+        bool showMine = settings.MiningEnabled && actionable;
+
+        bool showRotate = actionable && rotation.ShowActions;
+        PopupAction? rotateNext = null;
+        PopupAction? rotatePrevious = null;
+        if (showRotate)
+        {
+            rotation.TryGetNext(state, 1, out rotateNext);
+            rotation.TryGetNext(state, -1, out rotatePrevious);
+        }
+        bool rotateIsOneWay = rotateNext == rotatePrevious;
 
         return new PopupData
         {
@@ -53,13 +72,16 @@ public sealed class PopupDataBuilder(PluginSettings settings, MiningService mini
                 : word.MeaningsChunks,
             Conjugations = settings.PopupShowConjugation ? token.Conjugations : [],
             State = state,
+            States = ResolveStates(word, state),
             WordId = word.WordId,
             ReadingIndex = word.ReadingIndex,
+            HeadwordLinkEnabled = !settings.PopupDisableHeadwordLink,
+            MoveActionsBottom = settings.PopupMoveActionsBottom,
 
-            ShowNeverForget = settings.PopupShowStateActions && settings.PopupShowNeverForget,
-            ShowBlacklist = settings.PopupShowStateActions && settings.PopupShowBlacklist,
-            ShowSuspend = settings.PopupShowStateActions && settings.PopupShowSuspend,
-            ShowForget = settings.PopupShowStateActions && settings.PopupShowForget && hasCard,
+            ShowNeverForget = actionable && settings.PopupShowStateActions && settings.PopupShowNeverForget,
+            ShowBlacklist = actionable && settings.PopupShowStateActions && settings.PopupShowBlacklist,
+            ShowSuspend = actionable && settings.PopupShowStateActions && settings.PopupShowSuspend,
+            ShowForget = actionable && settings.PopupShowStateActions && settings.PopupShowForget && hasCard,
             IsNeverForgotten = isMastered,
             IsBlacklisted = isBlacklisted,
             IsSuspended = isSuspended,
@@ -75,7 +97,14 @@ public sealed class PopupDataBuilder(PluginSettings settings, MiningService mini
                     mining.Decks)
                 : [],
 
-            ShowReview = settings.ReviewsEnabled && settings.PopupShowReview,
+            ShowRotate = showRotate,
+            RotateForwardLabel = rotateIsOneWay
+                ? RotationService.Label(rotateNext)
+                : $"{RotationService.Label(rotateNext)} →",
+            RotateBackwardLabel = $"← {RotationService.Label(rotatePrevious)}",
+            ShowRotateBackward = !rotateIsOneWay,
+
+            ShowReview = actionable && settings.ReviewsEnabled && settings.PopupShowReview,
             UseTwoGrades = settings.PopupUseTwoGrades,
 
             PopupBgColor = settings.PopupBgColor,

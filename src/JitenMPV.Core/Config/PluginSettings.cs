@@ -113,6 +113,17 @@ public sealed class PluginSettings
     [JsonPropertyName("popup_show_deck_membership")]
     public bool PopupShowDeckMembership { get; set; } = true;
 
+    /// Suppresses the jiten.moe vocabulary link behind the headword.
+    [JsonPropertyName("popup_disable_headword_link")]
+    public bool PopupDisableHeadwordLink { get; set; }
+
+    /// Places the action, rotation and grading rows under the entry instead of above it.
+    [JsonPropertyName("popup_move_actions_bottom")]
+    public bool PopupMoveActionsBottom { get; set; }
+
+    [JsonPropertyName("popup_show_rotate_actions")]
+    public bool PopupShowRotateActions { get; set; }
+
     [JsonPropertyName("popup_show_review")]
     public bool PopupShowReview { get; set; } = true;
 
@@ -158,6 +169,22 @@ public sealed class PluginSettings
 
     [JsonPropertyName("double_click_action")]
     public DoubleClickAction DoubleClickAction { get; set; } = DoubleClickAction.Mine;
+
+    [JsonPropertyName("rotate_states_enabled")]
+    public bool RotateStatesEnabled { get; set; }
+
+    /// Keeps the rotation among the states; otherwise it also passes through a cleared slot.
+    [JsonPropertyName("rotate_cycle")]
+    public bool RotateCycle { get; set; }
+
+    [JsonPropertyName("rotate_cycle_never_forget")]
+    public bool RotateCycleNeverForget { get; set; } = true;
+
+    [JsonPropertyName("rotate_cycle_blacklist")]
+    public bool RotateCycleBlacklist { get; set; } = true;
+
+    [JsonPropertyName("rotate_cycle_suspended")]
+    public bool RotateCycleSuspended { get; set; }
 
     /// Master switch for SRS grading: gates the popup grade buttons, the review keybinds and the
     /// action dispatch. Mirrors the Reader extension's jitenDisableReviews.
@@ -205,6 +232,97 @@ public sealed class PluginSettings
 
     [JsonPropertyName("custom_theme_colors")]
     public Dictionary<string, CustomStateStyle>? CustomThemeColors { get; set; }
+
+    /// Master switch for screenshot/audio capture on mine. No-ops when the account is not Jiten+.
+    [JsonPropertyName("media_capture_enabled")]
+    public bool MediaCaptureEnabled { get; set; }
+
+    [JsonPropertyName("media_capture_image")]
+    public bool MediaCaptureImage { get; set; } = true;
+
+    /// Replays the subtitle's time range as an animated WebP instead of a single frame.
+    [JsonPropertyName("media_capture_image_animated")]
+    public bool MediaCaptureImageAnimated { get; set; }
+
+    [JsonPropertyName("media_capture_audio")]
+    public bool MediaCaptureAudio { get; set; } = true;
+
+    /// Opens the trim/preview window before uploading. Off means mine-and-upload with the defaults.
+    [JsonPropertyName("media_review_popup")]
+    public bool MediaReviewPopup { get; set; } = true;
+
+    [JsonPropertyName("media_overwrite_prompt")]
+    public MediaOverwritePrompt MediaOverwritePrompt { get; set; } = MediaOverwritePrompt.Always;
+
+    [JsonPropertyName("media_image_source")]
+    public MediaImageSource MediaImageSource { get; set; } = MediaImageSource.MpvFrame;
+
+    /// Defaults to None: a card that shows the answer teaches nothing, and the sentence text is
+    /// already carried by the example-sentence field.
+    [JsonPropertyName("media_subtitle_burn")]
+    public MediaSubtitleBurn MediaSubtitleBurn { get; set; } = MediaSubtitleBurn.None;
+
+    /// Matches the server's CardMediaImageProcessor.MaxLongEdge, so its re-encode is a no-op resize.
+    [JsonPropertyName("media_image_max_edge")]
+    public int MediaImageMaxEdge { get; set; } = 1600;
+
+    /// The server re-encodes to WebP q82 regardless, so sending at q82 would compress twice at the
+    /// same setting and lose detail for nothing. Sending higher softens that second pass; 100 sends
+    /// losslessly, which avoids it entirely at several times the upload size.
+    [JsonPropertyName("media_image_quality")]
+    public int MediaImageQuality { get; set; } = 95;
+
+    /// Below the server's 300-frame cap; past that the server stores the file unprocessed.
+    [JsonPropertyName("media_anim_max_frames")]
+    public int MediaAnimMaxFrames { get; set; } = 280;
+
+    [JsonPropertyName("media_anim_target_fps")]
+    public int MediaAnimTargetFps { get; set; } = 15;
+
+    [JsonPropertyName("media_anim_min_fps")]
+    public int MediaAnimMinFps { get; set; } = 5;
+
+    [JsonPropertyName("media_anim_max_edge")]
+    public int MediaAnimMaxEdge { get; set; } = 960;
+
+    /// The server re-encodes clips to WebP q82 whatever arrives, so sending above 82 costs upload
+    /// bytes for no gain, and sending below it throws away quality the stored file could have kept.
+    [JsonPropertyName("media_anim_quality")]
+    public int MediaAnimQuality { get; set; } = 82;
+
+    [JsonPropertyName("media_anim_max_bytes")]
+    public int MediaAnimMaxBytes { get; set; } = 2_500_000;
+
+    [JsonPropertyName("media_audio_bitrate_kbps")]
+    public int MediaAudioBitrateKbps { get; set; } = 48;
+
+    [JsonPropertyName("media_audio_stereo")]
+    public bool MediaAudioStereo { get; set; }
+
+    [JsonPropertyName("media_audio_max_bytes")]
+    public int MediaAudioMaxBytes { get; set; } = 1_500_000;
+
+    /// Silence-aware expansion/contraction of the subtitle range before the fixed pads are applied.
+    [JsonPropertyName("media_audio_auto_trim")]
+    public bool MediaAudioAutoTrim { get; set; } = true;
+
+    [JsonPropertyName("media_audio_pad_lead_ms")]
+    public int MediaAudioPadLeadMs { get; set; } = 250;
+
+    [JsonPropertyName("media_audio_pad_tail_ms")]
+    public int MediaAudioPadTailMs { get; set; } = 350;
+
+    /// Decoded on each side of the subtitle so the review popup's handles have room to drag into.
+    [JsonPropertyName("media_audio_window_margin_s")]
+    public double MediaAudioWindowMarginSeconds { get; set; } = 5.0;
+
+    /// Neighbouring subtitle lines offered in the review popup's sentence selector, each side.
+    [JsonPropertyName("media_sentence_context_lines")]
+    public int MediaSentenceContextLines { get; set; } = 2;
+
+    /// Empty resolves "ffmpeg" from PATH.
+    [JsonPropertyName("ffmpeg_path")]
+    public string FfmpegPath { get; set; } = "";
 
     [JsonPropertyName("popup_keybinds")]
     public Dictionary<string, string>? PopupKeybinds { get; set; } = new()

@@ -114,6 +114,11 @@ public sealed class MpvIpcClient(string pipePath, ILogger logger) : IAsyncDispos
             el.GetProperty("x1").GetDouble(), el.GetProperty("y1").GetDouble());
     }
 
+    /// <param name="flags">mpv screenshot flags: "video" (clean frame), "subtitles", or "window"
+    /// (as displayed, including every OSD layer).</param>
+    public Task ScreenshotToFileAsync(string path, string flags, CancellationToken ct)
+        => SendCommandAsync(["screenshot-to-file", path, flags], ct);
+
     public Task RemoveOverlayAsync(int id, CancellationToken ct)
         => SendNamedCommandAsync(new JsonObject
         {

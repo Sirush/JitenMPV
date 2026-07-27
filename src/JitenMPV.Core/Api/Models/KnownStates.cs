@@ -3,7 +3,7 @@ namespace JitenMPV.Core.Api.Models;
 public static class KnownStates
 {
     /// The API returns every state a card holds, with the tier last for scheduled cards
-    /// (`[Due, Young]`) but the parked flags last for others (`[Young, Suspended]`). Taking the
+    /// (`[Due, Young]`) but the parked marker last for others (`[Young, Suspended]`). Taking the
     /// first element therefore drops Suspended and Redundant, so collapse by specificity instead.
     private static readonly KnownState[] Priority =
     [

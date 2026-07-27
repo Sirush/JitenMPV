@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using JitenMPV.Core.Api.Models;
 using JitenMPV.Core.Cache;
 using JitenMPV.Core.Config;
 using JitenMPV.Core.Mpv;
@@ -21,6 +22,7 @@ public sealed class InteractionHandler : IDisposable
     private readonly WordActionService _wordAction;
     private readonly InlineReviewService _review;
     private readonly MiningService _mining;
+    private readonly RotationService _rotation;
     private readonly SubtitleColorizer _colorizer;
     private volatile PluginSettings _settings;
     private readonly ILogger _logger;
@@ -40,7 +42,7 @@ public sealed class InteractionHandler : IDisposable
         MpvIpcClient ipc, HitTestService hitTest,
         BlurHoverManager blur, PopupManager popup, AutopauseService autopause,
         WordActionService wordAction, InlineReviewService review, MiningService mining,
-        SubtitleColorizer colorizer,
+        RotationService rotation, SubtitleColorizer colorizer,
         PluginSettings settings, OsdState osd, ILogger logger)
     {
         _ipc = ipc;
@@ -51,6 +53,7 @@ public sealed class InteractionHandler : IDisposable
         _wordAction = wordAction;
         _review = review;
         _mining = mining;
+        _rotation = rotation;
         _colorizer = colorizer;
         _settings = settings;
         _osd = osd;
@@ -256,6 +259,8 @@ public sealed class InteractionHandler : IDisposable
         {
             var key = (hit.WordId, hit.ReadingIndex);
             var state = _currentEntry.VocabStates.GetValueOrDefault(key);
+            if (state == KnownState.Redundant) return;
+
             await _wordAction.SetStateAsync(
                 hit.WordId, hit.ReadingIndex, PopupAction.NeverForget,
                 state, _currentText, _ipc, ct);
@@ -303,6 +308,11 @@ public sealed class InteractionHandler : IDisposable
         byte readingIndex = key.Value.ReadingIndex;
         var state = _currentEntry.VocabStates.GetValueOrDefault((wordId, readingIndex));
 
+        // A redundant word has no card of its own, so nothing can be graded or restated on it and
+        // its rows are hidden. The keybinds stay bound regardless, so refuse here too. Mining falls
+        // through to MiningService, which says why it was skipped instead of going silent.
+        if (state == KnownState.Redundant && action != PopupAction.Mine) return;
+
         switch (action)
         {
             case PopupAction.NeverForget:
@@ -327,6 +337,12 @@ public sealed class InteractionHandler : IDisposable
             case PopupAction.Mine:
                 await _mining.MineWithConfiguredDeckAsync(wordId, readingIndex, _currentText, _ipc, ct);
                 break;
+            case PopupAction.RotateForward:
+                await RotateStateAsync(wordId, readingIndex, state, 1, ct);
+                break;
+            case PopupAction.RotateBackward:
+                await RotateStateAsync(wordId, readingIndex, state, -1, ct);
+                break;
         }
 
         // Silent when no deck is configured: auto-mining must not nag on every grade.
@@ -343,6 +359,25 @@ public sealed class InteractionHandler : IDisposable
             await _popup.RefreshAsync(_currentEntry, ct);
 
         await ReRenderSubtitleAsync(ct);
+    }
+
+    /// Moves the card to the next slot in the rotation cycle. SetStateAsync toggles against the
+    /// state it is handed, so clearing passes the state that means "set" and setting passes New.
+    private async Task RotateStateAsync(
+        int wordId, byte readingIndex, KnownState state, int direction, CancellationToken ct)
+    {
+        if (!_rotation.TryGetNext(state, direction, out var target)) return;
+
+        var current = RotationService.StateOf(state);
+        if (current == target) return;
+
+        if (current is { } clear)
+            await _wordAction.SetStateAsync(
+                wordId, readingIndex, clear, state, _currentText!, _ipc, ct);
+
+        if (target is { } set)
+            await _wordAction.SetStateAsync(
+                wordId, readingIndex, set, KnownState.New, _currentText!, _ipc, ct);
     }
 
     private async Task ReRenderSubtitleAsync(CancellationToken ct)

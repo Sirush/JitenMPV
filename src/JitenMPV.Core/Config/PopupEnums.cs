@@ -50,6 +50,27 @@ public enum DoubleClickAction
 }
 
 
+[JsonConverter(typeof(MediaOverwritePromptConverter))]
+public enum MediaOverwritePrompt { Always, OncePerSession, Never }
+
+[JsonConverter(typeof(MediaImageSourceConverter))]
+public enum MediaImageSource
+{
+    /// The frame currently on screen, taken straight from mpv without a seek.
+    MpvFrame,
+
+    /// Seeks to the middle of the subtitle's span, for when the user paused on a black frame.
+    SubtitleMidpoint
+}
+
+/// None = clean frame. Original = the subtitle track's own styling, burned in by libass.
+/// Colored = JitenMPV's knowledge-state colouring, which only the mpv window carries.
+[JsonConverter(typeof(MediaSubtitleBurnConverter))]
+public enum MediaSubtitleBurn { None, Original, Colored }
+
 internal sealed class DoubleClickActionConverter() : JsonStringEnumConverter<DoubleClickAction>(JsonNamingPolicy.KebabCaseLower);
+internal sealed class MediaOverwritePromptConverter() : JsonStringEnumConverter<MediaOverwritePrompt>(JsonNamingPolicy.KebabCaseLower);
+internal sealed class MediaImageSourceConverter() : JsonStringEnumConverter<MediaImageSource>(JsonNamingPolicy.KebabCaseLower);
+internal sealed class MediaSubtitleBurnConverter() : JsonStringEnumConverter<MediaSubtitleBurn>(JsonNamingPolicy.KebabCaseLower);
 internal sealed class PopupTriggerModeConverter() : JsonStringEnumConverter<PopupTriggerMode>(JsonNamingPolicy.KebabCaseLower);
 internal sealed class PopupPositionModeConverter() : JsonStringEnumConverter<PopupPositionMode>(JsonNamingPolicy.KebabCaseLower);

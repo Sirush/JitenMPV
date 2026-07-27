@@ -1,0 +1,38 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="JitenMPV.App.Views.MediaOverwriteDialog"
+        Title="Replace what is on this card?"
+        Width="440" SizeToContent="Height"
+        CanResize="False"
+        WindowStartupLocation="CenterScreen"
+        Topmost="True"
+        ShowInTaskbar="False"
+        Background="#09090b"
+        RequestedThemeVariant="Dark">
+
+  <Window.Styles>
+    <Style Selector="Button.accent">
+      <Setter Property="Background" Value="#c084fc" />
+      <Setter Property="Foreground" Value="#18181b" />
+      <Setter Property="FontWeight" Value="Medium" />
+    </Style>
+    <Style Selector="Button.secondary">
+      <Setter Property="Background" Value="#27272a" />
+      <Setter Property="Foreground" Value="#d4d4d8" />
+    </Style>
+  </Window.Styles>
+
+  <StackPanel Margin="20" Spacing="14">
+    <TextBlock x:Name="HeadlineText" FontSize="15" FontWeight="Medium"
+               Foreground="#ffffff" TextWrapping="Wrap" />
+    <TextBlock x:Name="DetailText" FontSize="13" Foreground="#a1a1aa" TextWrapping="Wrap" />
+
+    <CheckBox x:Name="DontAskCheck" Content="Don't ask again this session" />
+
+    <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="8">
+      <Button Content="Do not mine" Classes="secondary" Click="OnCancelMine" />
+      <Button Grid.Column="2" Content="Mine without them" Classes="secondary" Click="OnSkipMedia" />
+      <Button Grid.Column="3" Content="Replace" Classes="accent" Click="OnReplace" />
+    </Grid>
+  </StackPanel>
+</Window>

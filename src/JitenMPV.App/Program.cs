@@ -7,6 +7,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Threading;
+using JitenMPV.App.Media;
 using JitenMPV.App.Popup;
 using JitenMPV.App.ViewModels;
 using JitenMPV.App.Views;
@@ -76,7 +77,10 @@ sealed class Program
             };
 
             var presenter = new AvaloniaPopupPresenter();
-            var host = new PluginHost(pipePath, logger, presenter);
+            var reviewPresenter = new MiningReviewPresenter();
+            var overwritePresenter = new MediaOverwritePresenter();
+            var host = new PluginHost(
+                pipePath, logger, presenter, reviewPresenter, overwritePresenter);
             SettingsWindow? settingsWindow = null;
             bool settingsOpening = false;
 

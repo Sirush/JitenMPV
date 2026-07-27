@@ -1,0 +1,143 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:JitenMPV.App.ViewModels"
+        xmlns:controls="using:JitenMPV.App.Controls"
+        x:Class="JitenMPV.App.Views.MiningReviewWindow"
+        x:DataType="vm:MiningReviewViewModel"
+        Title="Mining"
+        Width="720" SizeToContent="Height"
+        CanResize="False"
+        Topmost="True"
+        ShowInTaskbar="False"
+        WindowStartupLocation="CenterScreen"
+        Background="#09090b"
+        RequestedThemeVariant="Dark">
+
+  <Window.Styles>
+    <Style Selector="TextBlock.section-header">
+      <Setter Property="FontSize" Value="11" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Foreground" Value="#71717a" />
+    </Style>
+    <Style Selector="Border.divider">
+      <Setter Property="Height" Value="1" />
+      <Setter Property="Background" Value="#27272a" />
+    </Style>
+    <Style Selector="Button.accent">
+      <Setter Property="Background" Value="#c084fc" />
+      <Setter Property="Foreground" Value="#18181b" />
+      <Setter Property="FontWeight" Value="Medium" />
+    </Style>
+    <Style Selector="Button.accent:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="#d8b4fe" />
+      <Setter Property="Foreground" Value="#18181b" />
+    </Style>
+    <Style Selector="Button.secondary">
+      <Setter Property="Background" Value="#27272a" />
+      <Setter Property="Foreground" Value="#d4d4d8" />
+    </Style>
+  </Window.Styles>
+
+  <StackPanel Margin="20" Spacing="14">
+
+    <StackPanel Orientation="Horizontal" Spacing="12">
+      <TextBlock Text="{Binding Headword}" FontSize="22" FontWeight="Bold" Foreground="#ffffff" />
+      <TextBlock Text="{Binding Reading}" FontSize="15" Foreground="#a1a1aa" VerticalAlignment="Bottom" />
+    </StackPanel>
+
+    <Border Background="#2a2416" BorderBrush="#a16207" BorderThickness="1" CornerRadius="8"
+            Padding="12" IsVisible="{Binding HasOverwriteWarning}">
+      <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
+        <TextBlock Text="{Binding OverwriteMessage}" Foreground="#fde68a" FontSize="13"
+                   TextWrapping="Wrap" VerticalAlignment="Center" />
+        <Button Grid.Column="1" Content="Keep the old one" Classes="secondary" FontSize="12"
+                Command="{Binding KeepExistingImageCommand}" IsVisible="{Binding ReplacesImage}" />
+        <Button Grid.Column="2" Content="Keep the old audio" Classes="secondary" FontSize="12"
+                Command="{Binding KeepExistingAudioCommand}" IsVisible="{Binding ReplacesAudio}" />
+      </Grid>
+    </Border>
+
+    <Border Classes="divider" />
+
+    <Grid ColumnDefinitions="260,*" ColumnSpacing="16">
+      <Border Background="#0F0F12" CornerRadius="6" Height="146" ClipToBounds="True">
+        <Image Source="{Binding Poster}" Stretch="UniformToFill" />
+      </Border>
+
+      <StackPanel Grid.Column="1" Spacing="8" VerticalAlignment="Center">
+        <TextBlock Text="{Binding PosterCaption}" Foreground="#d4d4d8" FontSize="13" />
+        <CheckBox Content="Include screenshot" IsChecked="{Binding IncludeImage}"
+                  IsEnabled="{Binding HasPoster}" />
+        <CheckBox Content="Use a short clip instead" IsChecked="{Binding Animated}"
+                  IsEnabled="{Binding IncludeImage}" Margin="20,0,0,0"
+                  IsVisible="{Binding HasClipPlan}" />
+        <TextBlock Text="{Binding ClipSummary}" FontSize="12" Foreground="#d4d4d8"
+                   TextWrapping="Wrap" Margin="20,0,0,0" IsVisible="{Binding Animated}" />
+      </StackPanel>
+    </Grid>
+
+    <Border Classes="divider" />
+
+    <StackPanel Spacing="8" IsVisible="{Binding HasAudio}">
+      <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="12">
+        <CheckBox Content="Include audio" IsChecked="{Binding IncludeAudio}" />
+        <TextBlock Grid.Column="2" Text="{Binding AudioSummary}" Foreground="#a1a1aa" FontSize="12"
+                   VerticalAlignment="Center" />
+        <Button Grid.Column="3" Content="Preview" Classes="secondary" FontSize="12"
+                Command="{Binding PlayPreviewCommand}" IsVisible="{Binding PreviewSupported}" />
+      </Grid>
+
+      <controls:WaveformControl Height="96"
+                                Peaks="{Binding Peaks}"
+                                WindowStart="{Binding WindowStart}"
+                                WindowDuration="{Binding WindowDuration}"
+                                SubtitleStart="{Binding SubtitleStart}"
+                                SubtitleEnd="{Binding SubtitleEnd}"
+                                SelectionStart="{Binding SelectionStart, Mode=TwoWay}"
+                                SelectionEnd="{Binding SelectionEnd, Mode=TwoWay}" />
+      <TextBlock Text="Drag either edge to trim. The lighter part is the boundaries of the subtitles."
+                 FontSize="11" Foreground="#71717a" />
+    </StackPanel>
+
+    <Border Classes="divider" IsVisible="{Binding HasAudio}" />
+
+    <StackPanel Spacing="6">
+      <Grid ColumnDefinitions="*,Auto">
+        <TextBlock Text="EXAMPLE SENTENCE" Classes="section-header" VerticalAlignment="Center" />
+        <TextBlock Grid.Column="1" Text="{Binding SentenceCounter}" FontSize="11"
+                   Foreground="#71717a" />
+      </Grid>
+      <Border Background="#0F0F12" BorderBrush="#27272a" BorderThickness="1" CornerRadius="6"
+              Padding="10">
+        <SelectableTextBlock Text="{Binding ContextText}"
+                             SelectionStart="{Binding SentenceSelectionStart, Mode=TwoWay}"
+                             SelectionEnd="{Binding SentenceSelectionEnd, Mode=TwoWay}"
+                             Foreground="#e4e4e7" FontSize="15" TextWrapping="Wrap"
+                             SelectionBrush="#4C1D95" />
+      </Border>
+      <TextBlock Text="{Binding SentencePreview}" FontSize="12" Foreground="#a1a1aa"
+                 TextWrapping="Wrap" />
+      <TextBlock Text="Select more text to expand the mined example sentence."
+                 FontSize="11" Foreground="#71717a" IsVisible="{Binding TimelineLoaded}" />
+      <TextBlock Text="Turn on pre-parsing to pick up the lines around this one."
+                 FontSize="11" Foreground="#71717a" IsVisible="{Binding !TimelineLoaded}" />
+    </StackPanel>
+
+    <Border Classes="divider" />
+
+    <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="8">
+      <ComboBox ItemsSource="{Binding Decks}" SelectedItem="{Binding SelectedDeck}"
+                MinWidth="200" PlaceholderText="Deck">
+        <ComboBox.ItemTemplate>
+          <DataTemplate x:DataType="vm:StudyDeckOption">
+            <TextBlock Text="{Binding Name}" />
+          </DataTemplate>
+        </ComboBox.ItemTemplate>
+      </ComboBox>
+      <Button Grid.Column="2" Content="Cancel" Classes="secondary" IsCancel="True"
+              Command="{Binding CancelCommand}" />
+      <Button Grid.Column="3" Content="Mine" Classes="accent" IsDefault="True"
+              Command="{Binding ConfirmCommand}" />
+    </Grid>
+  </StackPanel>
+</Window>

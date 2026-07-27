@@ -9,7 +9,9 @@ using CommunityToolkit.Mvvm.Input;
 using JitenMPV.Core.Api;
 using JitenMPV.Core.Api.Models;
 using JitenMPV.Core.Config;
+using JitenMPV.Core.Media;
 using JitenMPV.Core.Pitch;
+using JitenMPV.Core.Plus;
 using JitenMPV.Core.Theming;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -25,6 +27,9 @@ public partial class PitchStyleViewModel(PitchClass pitchClass, string color) : 
 
 public partial class SettingsViewModel : ViewModelBase
 {
+    /// Sidebar position of the Media tab; ResetSection and the tab visibility bindings share it.
+    private const int MediaTabIndex = 3;
+
     [ObservableProperty] private string _apiKey = "";
     [ObservableProperty] private string _apiBaseUrl = "";
     [ObservableProperty] private int _apiTimeoutSeconds;
@@ -80,6 +85,16 @@ public partial class SettingsViewModel : ViewModelBase
     [ObservableProperty] private bool _popupShowDeckMembership;
     [ObservableProperty] private bool _popupShowReview;
     [ObservableProperty] private bool _popupUseTwoGrades;
+    /// Presented positively; PluginSettings stores the Reader's negative popup_disable_headword_link.
+    [ObservableProperty] private bool _popupHeadwordLink;
+    [ObservableProperty] private bool _popupMoveActionsBottom;
+    [ObservableProperty] private bool _popupShowRotateActions;
+
+    [ObservableProperty] private bool _rotateStatesEnabled;
+    [ObservableProperty] private bool _rotateCycle;
+    [ObservableProperty] private bool _rotateCycleNeverForget;
+    [ObservableProperty] private bool _rotateCycleBlacklist;
+    [ObservableProperty] private bool _rotateCycleSuspended;
 
     [ObservableProperty] private bool _autopauseEnabled;
     [ObservableProperty] private int _autopauseDelayMs;
@@ -104,9 +119,91 @@ public partial class SettingsViewModel : ViewModelBase
     [ObservableProperty] private string _keybindBlacklist = "";
     [ObservableProperty] private string _keybindSuspend = "";
     [ObservableProperty] private string _keybindForget = "";
+    [ObservableProperty] private string _keybindRotateForward = "";
+    [ObservableProperty] private string _keybindRotateBackward = "";
+
+    [ObservableProperty] private bool _mediaCaptureEnabled;
+    [ObservableProperty] private bool _mediaCaptureImage;
+    [ObservableProperty] private bool _mediaCaptureImageAnimated;
+    [ObservableProperty] private bool _mediaCaptureAudio;
+    [ObservableProperty] private bool _mediaReviewPopup;
+    [ObservableProperty] private MediaOverwritePrompt _mediaOverwritePrompt;
+    [ObservableProperty] private MediaImageSource _mediaImageSource;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(SubtitleBurnHint))]
+    [NotifyPropertyChangedFor(nameof(SubtitleBurnWarning))]
+    private MediaSubtitleBurn _mediaSubtitleBurn;
+
+    [ObservableProperty] private int _mediaImageMaxEdge;
+    [ObservableProperty] private int _mediaImageQuality;
+    [ObservableProperty] private int _mediaAnimMaxFrames;
+    [ObservableProperty] private int _mediaAnimTargetFps;
+    [ObservableProperty] private int _mediaAnimMinFps;
+    [ObservableProperty] private int _mediaAnimMaxEdge;
+    [ObservableProperty] private int _mediaAnimQuality;
+    [ObservableProperty] private double _mediaAnimMaxMb;
+    [ObservableProperty] private int _mediaAudioBitrateKbps;
+    [ObservableProperty] private bool _mediaAudioStereo;
+    [ObservableProperty] private double _mediaAudioMaxMb;
+    [ObservableProperty] private bool _mediaAudioAutoTrim;
+    [ObservableProperty] private int _mediaAudioPadLeadMs;
+    [ObservableProperty] private int _mediaAudioPadTailMs;
+    [ObservableProperty] private double _mediaAudioWindowMarginSeconds;
+    [ObservableProperty] private int _mediaSentenceContextLines;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(SubtitleBurnWarning))]
+    private string _ffmpegPath = "";
+
+    [ObservableProperty] private string _jitenPlusTierLabel = "Unknown";
+    [ObservableProperty] private string _jitenPlusQuotaLabel = "";
+    [ObservableProperty] private bool _jitenPlusLocked = true;
+    [ObservableProperty] private string _jitenPlusStatus = "";
+    [ObservableProperty] private bool _isCheckingJitenPlus;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(SubtitleBurnWarning))]
+    private string _ffmpegStatus = "";
+
+    [ObservableProperty] private bool _ffmpegAvailable;
+
+    public ObservableCollection<MediaOverwritePrompt> OverwritePrompts { get; } =
+    [
+        MediaOverwritePrompt.Always, MediaOverwritePrompt.OncePerSession, MediaOverwritePrompt.Never
+    ];
+
+    public string SubtitleBurnHint => MediaSubtitleBurn switch
+    {
+        MediaSubtitleBurn.Original =>
+            "Displays with normal, uncoloured subtitles.",
+        MediaSubtitleBurn.Colored =>
+            "Shows subtitles in the same colours as your theme.",
+        _ => "Only show the image without subtitles."
+    };
+
+    public string SubtitleBurnWarning
+        => MediaSubtitleBurn == MediaSubtitleBurn.Original && !FfmpegAvailable && FfmpegStatus.Length > 0
+            ? "ffmpeg was not found, so the subtitles will be left out"
+            : "";
 
     [ObservableProperty] private int _selectedTabIndex;
     [ObservableProperty] private bool _isApiKeyVisible;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ApiKeyStatusColor))]
+    private string _apiKeyStatus = "";
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ApiKeyStatusColor))]
+    private bool _isApiKeyValid;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ApiKeyStatusColor))]
+    private bool _isTestingApiKey;
+
+    public string ApiKeyStatusColor => IsTestingApiKey ? "#a1a1aa"
+        : IsApiKeyValid ? "#86efac"
+        : "#fca5a5";
 
     [ObservableProperty] private string _importCode = "";
     [ObservableProperty] private string _importStatus = "";
@@ -222,6 +319,14 @@ public partial class SettingsViewModel : ViewModelBase
         PopupShowDeckMembership = s.PopupShowDeckMembership;
         PopupShowReview = s.PopupShowReview;
         PopupUseTwoGrades = s.PopupUseTwoGrades;
+        PopupHeadwordLink = !s.PopupDisableHeadwordLink;
+        PopupMoveActionsBottom = s.PopupMoveActionsBottom;
+        PopupShowRotateActions = s.PopupShowRotateActions;
+        RotateStatesEnabled = s.RotateStatesEnabled;
+        RotateCycle = s.RotateCycle;
+        RotateCycleNeverForget = s.RotateCycleNeverForget;
+        RotateCycleBlacklist = s.RotateCycleBlacklist;
+        RotateCycleSuspended = s.RotateCycleSuspended;
         AutopauseEnabled = s.AutopauseEnabled;
         AutopauseDelayMs = s.AutopauseDelayMs;
         MiningEnabled = s.MiningEnabled;
@@ -255,12 +360,67 @@ public partial class SettingsViewModel : ViewModelBase
             KeybindSuspend = kb.GetValueOrDefault("Suspend", "");
             KeybindForget = kb.GetValueOrDefault("Forget", "");
             KeybindMine = kb.GetValueOrDefault("Mine", "");
+            KeybindRotateForward = kb.GetValueOrDefault("RotateForward", "");
+            KeybindRotateBackward = kb.GetValueOrDefault("RotateBackward", "");
         }
+
+        ApplyMediaSettings(s);
+        ApplyJitenPlusSnapshot(JitenPlusCache.Load());
 
         _previousTheme = s.Theme == "Custom" ? "Default" : s.Theme;
         if (s.Theme == "Custom" && s.CustomThemeColors is { Count: > 0 } custom)
             InitCustomStylesFromSettings(custom);
     }
+
+    private void ApplyMediaSettings(PluginSettings s)
+    {
+        MediaCaptureEnabled = s.MediaCaptureEnabled;
+        MediaCaptureImage = s.MediaCaptureImage;
+        MediaCaptureImageAnimated = s.MediaCaptureImageAnimated;
+        MediaCaptureAudio = s.MediaCaptureAudio;
+        MediaReviewPopup = s.MediaReviewPopup;
+        MediaOverwritePrompt = s.MediaOverwritePrompt;
+        MediaImageSource = s.MediaImageSource;
+        MediaSubtitleBurn = s.MediaSubtitleBurn;
+        MediaImageMaxEdge = s.MediaImageMaxEdge;
+        MediaImageQuality = s.MediaImageQuality;
+        MediaAnimMaxFrames = s.MediaAnimMaxFrames;
+        MediaAnimTargetFps = s.MediaAnimTargetFps;
+        MediaAnimMinFps = s.MediaAnimMinFps;
+        MediaAnimMaxEdge = s.MediaAnimMaxEdge;
+        MediaAnimQuality = s.MediaAnimQuality;
+        MediaAnimMaxMb = BytesToMb(s.MediaAnimMaxBytes);
+        MediaAudioBitrateKbps = s.MediaAudioBitrateKbps;
+        MediaAudioStereo = s.MediaAudioStereo;
+        MediaAudioMaxMb = BytesToMb(s.MediaAudioMaxBytes);
+        MediaAudioAutoTrim = s.MediaAudioAutoTrim;
+        MediaAudioPadLeadMs = s.MediaAudioPadLeadMs;
+        MediaAudioPadTailMs = s.MediaAudioPadTailMs;
+        MediaAudioWindowMarginSeconds = s.MediaAudioWindowMarginSeconds;
+        MediaSentenceContextLines = s.MediaSentenceContextLines;
+        FfmpegPath = s.FfmpegPath;
+    }
+
+    private void ApplyJitenPlusSnapshot(JitenPlusSnapshot snapshot)
+    {
+        JitenPlusLocked = !snapshot.IsActive;
+        JitenPlusTierLabel = snapshot.Tier switch
+        {
+            JitenPlusTier.Full => "Jiten+",
+            JitenPlusTier.Trial => "Jiten+ Trial",
+            _ => "No Jiten+"
+        };
+        JitenPlusQuotaLabel = snapshot.MaxBytes > 0
+            ? $"{FormatBytes(snapshot.UsedBytes)} / {FormatBytes(snapshot.MaxBytes)} used"
+            : "";
+    }
+
+    private static double BytesToMb(int bytes) => Math.Round(bytes / 1_000_000.0, 2);
+    private static int MbToBytes(double mb) => (int)Math.Round(Math.Max(0.1, mb) * 1_000_000);
+
+    private static string FormatBytes(long bytes) => bytes >= 1024L * 1024 * 1024
+        ? $"{bytes / (1024.0 * 1024 * 1024):0.##} GB"
+        : $"{bytes / (1024.0 * 1024):0.#} MB";
 
     partial void OnSelectedThemeChanged(string value)
     {
@@ -331,6 +491,14 @@ public partial class SettingsViewModel : ViewModelBase
             PopupShowDeckMembership = PopupShowDeckMembership,
             PopupShowReview = PopupShowReview,
             PopupUseTwoGrades = PopupUseTwoGrades,
+            PopupDisableHeadwordLink = !PopupHeadwordLink,
+            PopupMoveActionsBottom = PopupMoveActionsBottom,
+            PopupShowRotateActions = PopupShowRotateActions,
+            RotateStatesEnabled = RotateStatesEnabled,
+            RotateCycle = RotateCycle,
+            RotateCycleNeverForget = RotateCycleNeverForget,
+            RotateCycleBlacklist = RotateCycleBlacklist,
+            RotateCycleSuspended = RotateCycleSuspended,
             AutopauseEnabled = AutopauseEnabled,
             AutopauseDelayMs = AutopauseDelayMs,
             MiningEnabled = MiningEnabled,
@@ -347,6 +515,31 @@ public partial class SettingsViewModel : ViewModelBase
             StatusOverlayEnabled = StatusOverlayEnabled,
             DebugLogging = DebugLogging,
             MouseZonePercent = MouseZonePercent,
+            MediaCaptureEnabled = MediaCaptureEnabled,
+            MediaCaptureImage = MediaCaptureImage,
+            MediaCaptureImageAnimated = MediaCaptureImageAnimated,
+            MediaCaptureAudio = MediaCaptureAudio,
+            MediaReviewPopup = MediaReviewPopup,
+            MediaOverwritePrompt = MediaOverwritePrompt,
+            MediaImageSource = MediaImageSource,
+            MediaSubtitleBurn = MediaSubtitleBurn,
+            MediaImageMaxEdge = MediaImageMaxEdge,
+            MediaImageQuality = MediaImageQuality,
+            MediaAnimMaxFrames = MediaAnimMaxFrames,
+            MediaAnimTargetFps = MediaAnimTargetFps,
+            MediaAnimMinFps = MediaAnimMinFps,
+            MediaAnimMaxEdge = MediaAnimMaxEdge,
+            MediaAnimQuality = MediaAnimQuality,
+            MediaAnimMaxBytes = MbToBytes(MediaAnimMaxMb),
+            MediaAudioBitrateKbps = MediaAudioBitrateKbps,
+            MediaAudioStereo = MediaAudioStereo,
+            MediaAudioMaxBytes = MbToBytes(MediaAudioMaxMb),
+            MediaAudioAutoTrim = MediaAudioAutoTrim,
+            MediaAudioPadLeadMs = MediaAudioPadLeadMs,
+            MediaAudioPadTailMs = MediaAudioPadTailMs,
+            MediaAudioWindowMarginSeconds = MediaAudioWindowMarginSeconds,
+            MediaSentenceContextLines = MediaSentenceContextLines,
+            FfmpegPath = FfmpegPath,
             CustomThemeColors = SelectedTheme == "Custom" && CustomStateStyles.Count > 0
                 ? CustomStateStyles.ToDictionary(s => s.State.ToString(), s => s.ToCustomStateStyle())
                 : null,
@@ -370,11 +563,61 @@ public partial class SettingsViewModel : ViewModelBase
         TryAdd("Suspend", KeybindSuspend);
         TryAdd("Forget", KeybindForget);
         TryAdd("Mine", KeybindMine);
+        TryAdd("RotateForward", KeybindRotateForward);
+        TryAdd("RotateBackward", KeybindRotateBackward);
         return dict.Count > 0 ? dict : null;
     }
 
     [RelayCommand]
     private void ToggleApiKeyVisibility() => IsApiKeyVisible = !IsApiKeyVisible;
+
+    /// Tests the key currently in the box, which need not be the saved one, so a paste can be
+    /// checked before committing it.
+    [RelayCommand]
+    private async Task TestApiKeyAsync()
+    {
+        if (IsTestingApiKey) return;
+
+        var key = ApiKey.Trim();
+        if (string.IsNullOrEmpty(key))
+        {
+            IsApiKeyValid = false;
+            ApiKeyStatus = "Enter an API key first";
+            return;
+        }
+
+        IsTestingApiKey = true;
+        IsApiKeyValid = false;
+        ApiKeyStatus = "Testing...";
+        try
+        {
+            var client = new JitenApiClient(key, ApiBaseUrl, ApiTimeoutSeconds,
+                NullLogger<SettingsViewModel>.Instance);
+            IsApiKeyValid = await client.PingAsync(
+                key, ApiBaseUrl, ApiTimeoutSeconds, CancellationToken.None);
+
+            // PingAsync swallows transport failures into false, so an unreachable server and a bad
+            // key look the same here; the message covers both.
+            ApiKeyStatus = IsApiKeyValid
+                ? "This key works"
+                : "This key was refused, or jiten.moe could not be reached";
+        }
+        catch (Exception ex)
+        {
+            ApiKeyStatus = $"Could not check: {ex.Message}";
+        }
+        finally
+        {
+            IsTestingApiKey = false;
+        }
+    }
+
+    /// A key edited after a test invalidates the verdict shown next to it.
+    partial void OnApiKeyChanged(string value)
+    {
+        ApiKeyStatus = "";
+        IsApiKeyValid = false;
+    }
 
     [RelayCommand]
     private async Task LoadDecksAsync()
@@ -415,6 +658,66 @@ public partial class SettingsViewModel : ViewModelBase
         {
             IsLoadingDecks = false;
         }
+    }
+
+    /// The settings window in standalone GUI mode has no PluginHost, so it builds its own client
+    /// and service exactly as LoadDecksAsync does.
+    [RelayCommand]
+    private async Task RefreshJitenPlusAsync()
+    {
+        if (IsCheckingJitenPlus) return;
+        if (string.IsNullOrWhiteSpace(ApiKey))
+        {
+            JitenPlusStatus = "Set an API key first";
+            return;
+        }
+
+        IsCheckingJitenPlus = true;
+        JitenPlusStatus = "Checking...";
+        try
+        {
+            var client = new JitenApiClient(ApiKey, ApiBaseUrl, ApiTimeoutSeconds,
+                NullLogger<SettingsViewModel>.Instance);
+            using var service = new JitenPlusService(client, NullLogger<SettingsViewModel>.Instance,
+                loadCache: false);
+
+            var snapshot = await service.RefreshAsync(CancellationToken.None);
+            ApplyJitenPlusSnapshot(snapshot);
+            JitenPlusStatus = snapshot.Error is { } error
+                ? $"Could not check: {error}"
+                : snapshot.IsActive ? "Checked just now" : "You do not have Jiten+ at the moment";
+        }
+        catch (JitenApiKeyRejectedException)
+        {
+            JitenPlusStatus = "Your API key was refused";
+        }
+        catch (Exception ex)
+        {
+            JitenPlusStatus = $"Could not check: {ex.Message}";
+        }
+        finally
+        {
+            IsCheckingJitenPlus = false;
+        }
+    }
+
+    /// Probes on first visit to the Media tab, so the burn-in warning is accurate before the user
+    /// has to guess that a Detect button exists.
+    partial void OnSelectedTabIndexChanged(int value)
+    {
+        if (value == MediaTabIndex && FfmpegStatus.Length == 0)
+            DetectFfmpegCommand.Execute(null);
+    }
+
+    [RelayCommand]
+    private async Task DetectFfmpegAsync()
+    {
+        FfmpegLocator.Invalidate();
+        var resolved = await FfmpegLocator.ResolveAsync(FfmpegPath, CancellationToken.None);
+        FfmpegAvailable = resolved is not null;
+        FfmpegStatus = resolved is null
+            ? "ffmpeg was not found"
+            : $"ffmpeg is ready ({FfmpegLocator.Version})";
     }
 
     [RelayCommand]
@@ -534,7 +837,10 @@ public partial class SettingsViewModel : ViewModelBase
                 SelectedStudyDeck = null;
                 ReviewsEnabled = defaults.ReviewsEnabled;
                 break;
-            case 3:
+            case MediaTabIndex:
+                ApplyMediaSettings(defaults);
+                break;
+            case 4:
                 PopupTrigger = defaults.PopupTrigger;
                 PopupHoverDelayMs = defaults.PopupHoverDelayMs;
                 PopupAutoHide = defaults.PopupAutoHide;
@@ -557,8 +863,16 @@ public partial class SettingsViewModel : ViewModelBase
                 PopupShowDeckMembership = defaults.PopupShowDeckMembership;
                 PopupShowReview = defaults.PopupShowReview;
                 PopupUseTwoGrades = defaults.PopupUseTwoGrades;
+                PopupHeadwordLink = !defaults.PopupDisableHeadwordLink;
+                PopupMoveActionsBottom = defaults.PopupMoveActionsBottom;
+                PopupShowRotateActions = defaults.PopupShowRotateActions;
+                RotateStatesEnabled = defaults.RotateStatesEnabled;
+                RotateCycle = defaults.RotateCycle;
+                RotateCycleNeverForget = defaults.RotateCycleNeverForget;
+                RotateCycleBlacklist = defaults.RotateCycleBlacklist;
+                RotateCycleSuspended = defaults.RotateCycleSuspended;
                 break;
-            case 4:
+            case 5:
                 var kb = defaults.PopupKeybinds ?? new();
                 KeybindReviewAgain = kb.GetValueOrDefault("ReviewAgain", "");
                 KeybindReviewHard = kb.GetValueOrDefault("ReviewHard", "");
@@ -569,8 +883,10 @@ public partial class SettingsViewModel : ViewModelBase
                 KeybindBlacklist = kb.GetValueOrDefault("Blacklist", "");
                 KeybindSuspend = kb.GetValueOrDefault("Suspend", "");
                 KeybindForget = kb.GetValueOrDefault("Forget", "");
+                KeybindRotateForward = kb.GetValueOrDefault("RotateForward", "");
+                KeybindRotateBackward = kb.GetValueOrDefault("RotateBackward", "");
                 break;
-            case 5:
+            case 6:
                 CacheSize = defaults.CacheSize;
                 PreparseEnabled = defaults.PreparseEnabled;
                 PreparseBatchSize = defaults.PreparseBatchSize;
