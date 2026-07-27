@@ -116,6 +116,8 @@ public partial class SettingsViewModel : ViewModelBase
     [ObservableProperty] private bool _statusOverlayEnabled;
     [ObservableProperty] private bool _debugLogging;
     [ObservableProperty] private int _mouseZonePercent;
+    [ObservableProperty] private bool _settingsButtonEnabled;
+    [ObservableProperty] private bool _subtitleNavButtonsEnabled;
 
     [ObservableProperty] private string _keybindReviewAgain = "";
     [ObservableProperty] private string _keybindReviewHard = "";
@@ -127,6 +129,10 @@ public partial class SettingsViewModel : ViewModelBase
     [ObservableProperty] private string _keybindForget = "";
     [ObservableProperty] private string _keybindRotateForward = "";
     [ObservableProperty] private string _keybindRotateBackward = "";
+
+    [ObservableProperty] private string _keybindPrevSub = "";
+    [ObservableProperty] private string _keybindNextSub = "";
+    [ObservableProperty] private string _keybindLoopSub = "";
 
     [ObservableProperty] private bool _mediaCaptureEnabled;
     [ObservableProperty] private bool _mediaCaptureImage;
@@ -371,6 +377,11 @@ public partial class SettingsViewModel : ViewModelBase
         StatusOverlayEnabled = s.StatusOverlayEnabled;
         DebugLogging = s.DebugLogging;
         MouseZonePercent = s.MouseZonePercent;
+        SettingsButtonEnabled = s.SettingsButtonEnabled;
+        SubtitleNavButtonsEnabled = s.SubtitleNavButtonsEnabled;
+        KeybindPrevSub = s.KeybindPrevSub;
+        KeybindNextSub = s.KeybindNextSub;
+        KeybindLoopSub = s.KeybindLoopSub;
 
         if (s.PopupKeybinds is { } kb)
         {
@@ -544,6 +555,11 @@ public partial class SettingsViewModel : ViewModelBase
             StatusOverlayEnabled = StatusOverlayEnabled,
             DebugLogging = DebugLogging,
             MouseZonePercent = MouseZonePercent,
+            SettingsButtonEnabled = SettingsButtonEnabled,
+            SubtitleNavButtonsEnabled = SubtitleNavButtonsEnabled,
+            KeybindPrevSub = KeybindPrevSub.Trim(),
+            KeybindNextSub = KeybindNextSub.Trim(),
+            KeybindLoopSub = KeybindLoopSub.Trim(),
             MediaCaptureEnabled = MediaCaptureEnabled,
             MediaCaptureImage = MediaCaptureImage,
             MediaCaptureImageAnimated = MediaCaptureImageAnimated,
@@ -920,6 +936,9 @@ public partial class SettingsViewModel : ViewModelBase
                 KeybindForget = kb.GetValueOrDefault("Forget", "");
                 KeybindRotateForward = kb.GetValueOrDefault("RotateForward", "");
                 KeybindRotateBackward = kb.GetValueOrDefault("RotateBackward", "");
+                KeybindPrevSub = defaults.KeybindPrevSub;
+                KeybindNextSub = defaults.KeybindNextSub;
+                KeybindLoopSub = defaults.KeybindLoopSub;
                 break;
             case 6:
                 CacheSize = defaults.CacheSize;
@@ -928,6 +947,8 @@ public partial class SettingsViewModel : ViewModelBase
                 StatusOverlayEnabled = defaults.StatusOverlayEnabled;
                 DebugLogging = defaults.DebugLogging;
                 MouseZonePercent = defaults.MouseZonePercent;
+                SettingsButtonEnabled = defaults.SettingsButtonEnabled;
+                SubtitleNavButtonsEnabled = defaults.SubtitleNavButtonsEnabled;
                 break;
         }
     }

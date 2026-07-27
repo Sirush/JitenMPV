@@ -25,6 +25,7 @@ public sealed class PluginHost(
     internal const int SubtitleOverlayId = 1;
     internal const int PitchUnderlineOverlayId = 2;
     internal const string OpenSettingsMessage = "jiten-open-settings";
+    private const string LuaScriptName = "jiten_mpv";
 
     /// mpv reports the new track before it has finished loading it, and a file change fires several
     /// of these at once; the reload waits this long so it reads a settled track-list exactly once.
@@ -126,8 +127,12 @@ public sealed class PluginHost(
 
         if (_ipcClient is { } ipc)
         {
-            _ = RunSafe(() => ipc.SendScriptMessageAsync("jiten_mpv", "jiten-set-mouse-zone",
+            _ = RunSafe(() => ipc.SendScriptMessageAsync(LuaScriptName, "jiten-set-mouse-zone",
                 newSettings.MouseZonePercent.ToString(), CancellationToken.None));
+            _ = RunSafe(() => ipc.SendScriptMessageAsync(LuaScriptName, "jiten-set-buttons",
+                newSettings.SettingsButtonEnabled ? "1" : "0",
+                newSettings.SubtitleNavButtonsEnabled ? "1" : "0", CancellationToken.None));
+            _ = RunSafe(() => SendNavKeysAsync(ipc, newSettings, CancellationToken.None));
 
             var raw = _currentSubtitleRaw;
             if (!string.IsNullOrWhiteSpace(raw))
@@ -400,11 +405,22 @@ public sealed class PluginHost(
             var clientName = await ipcClient.GetClientNameAsync(ct);
             logger.LogInformation("IPC client name: {Name}", clientName);
             if (clientName is not null)
+            {
                 await ipcClient.KeybindAsync("Ctrl+j",
                     $"script-message-to {clientName} {OpenSettingsMessage}", ct);
 
-            await ipcClient.SendScriptMessageAsync("jiten_mpv", "jiten-set-mouse-zone",
+                // The Lua side addresses this process by name for the settings button, and treats
+                // not knowing the name as "no plugin to open settings for".
+                await ipcClient.SendScriptMessageAsync(LuaScriptName, "jiten-set-client", clientName, ct);
+            }
+
+            await ipcClient.SendScriptMessageAsync(LuaScriptName, "jiten-set-mouse-zone",
                 settings.MouseZonePercent.ToString(), ct);
+            await ipcClient.SendScriptMessageAsync(LuaScriptName, "jiten-set-buttons",
+                settings.SettingsButtonEnabled ? "1" : "0",
+                settings.SubtitleNavButtonsEnabled ? "1" : "0", ct);
+
+            await SendNavKeysAsync(ipcClient, settings, ct);
 
             await keybindManager.ConfigureKeybindsAsync(settings.PopupKeybinds, settings.ReviewsEnabled, ct);
 
@@ -487,6 +503,17 @@ public sealed class PluginHost(
             await preParser.PreParseFileAsync(subFile, ct);
         else
             await preParser.PreParseEmbeddedAsync(ipc, ct);
+    }
+
+    private static async Task SendNavKeysAsync(
+        MpvIpcClient ipc, PluginSettings settings, CancellationToken ct)
+    {
+        await ipc.SendScriptMessageAsync(LuaScriptName, "jiten-set-nav-key",
+            "prev_sub", settings.KeybindPrevSub, ct);
+        await ipc.SendScriptMessageAsync(LuaScriptName, "jiten-set-nav-key",
+            "next_sub", settings.KeybindNextSub, ct);
+        await ipc.SendScriptMessageAsync(LuaScriptName, "jiten-set-nav-key",
+            "loop_sub", settings.KeybindLoopSub, ct);
     }
 
     private Task RunSafe(Func<Task> action)

@@ -242,6 +242,27 @@ public sealed class PluginSettings
     [JsonPropertyName("mouse_zone_percent")]
     public int MouseZonePercent { get; set; } = 65;
 
+    /// Fades a clickable button into the top-right corner while the pointer moves, as a mouse-only
+    /// route to the settings window for users who never learn the Ctrl+j binding.
+    [JsonPropertyName("settings_button_enabled")]
+    public bool SettingsButtonEnabled { get; set; } = true;
+
+    /// Companion buttons in the bottom corners that step to the previous or next subtitle.
+    [JsonPropertyName("subtitle_nav_buttons_enabled")]
+    public bool SubtitleNavButtonsEnabled { get; set; } = true;
+
+    /// Always-live mpv keys for subtitle navigation, empty to leave unbound. Unlike the popup
+    /// keybinds these do not claim a key that input.conf already binds.
+    [JsonPropertyName("keybind_prev_sub")]
+    public string KeybindPrevSub { get; set; } = "Ctrl+LEFT";
+
+    [JsonPropertyName("keybind_next_sub")]
+    public string KeybindNextSub { get; set; } = "Ctrl+RIGHT";
+
+    /// Replays the current line until pressed again.
+    [JsonPropertyName("keybind_loop_sub")]
+    public string KeybindLoopSub { get; set; } = "Ctrl+l";
+
     /// Colours subtitle words by pitch class instead of leaving the SRS colour alone.
     [JsonPropertyName("pitch_coloring_enabled")]
     public bool PitchColoringEnabled { get; set; }

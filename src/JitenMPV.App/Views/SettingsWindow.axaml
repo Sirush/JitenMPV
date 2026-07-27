@@ -982,6 +982,28 @@
                 </Grid>
               </StackPanel>
             </Border>
+
+            <Border Background="#18181b" BorderBrush="#3f3f46" BorderThickness="1"
+                    CornerRadius="8" Padding="16">
+              <StackPanel Spacing="12">
+                <TextBlock Text="SUBTITLE NAVIGATION" Classes="section-header" />
+                <TextBlock Text="Always active, unlike the popup keybinds above. A key already bound in input.conf keeps its own meaning."
+                           FontSize="11" Foreground="#71717a" TextWrapping="Wrap" />
+                <Grid ColumnDefinitions="120,*" RowDefinitions="Auto,Auto,Auto" RowSpacing="8">
+                  <TextBlock Text="Previous subtitle" VerticalAlignment="Center" Foreground="#a1a1aa" />
+                  <TextBox Grid.Column="1" Text="{Binding KeybindPrevSub}"
+                           PlaceholderText="unbound" MaxWidth="200" HorizontalAlignment="Left" />
+
+                  <TextBlock Grid.Row="1" Text="Next subtitle" VerticalAlignment="Center" Foreground="#a1a1aa" />
+                  <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding KeybindNextSub}"
+                           PlaceholderText="unbound" MaxWidth="200" HorizontalAlignment="Left" />
+
+                  <TextBlock Grid.Row="2" Text="Loop subtitle" VerticalAlignment="Center" Foreground="#a1a1aa" />
+                  <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding KeybindLoopSub}"
+                           PlaceholderText="unbound" MaxWidth="200" HorizontalAlignment="Left" />
+                </Grid>
+              </StackPanel>
+            </Border>
           </StackPanel>
 
           <!-- ═══════ ADVANCED TAB ═══════ -->
@@ -1012,6 +1034,16 @@
                            VerticalAlignment="Center" Foreground="#ffffff" />
               </StackPanel>
               <TextBlock Text="Mouse events are only tracked in this percentage of the screen from the bottom"
+                         FontSize="11" Foreground="#71717a" TextWrapping="Wrap" />
+
+              <CheckBox Content="Show settings button on mouse move" IsChecked="{Binding SettingsButtonEnabled}"
+                        Margin="0,8,0,0" />
+              <TextBlock Text="Fades a clickable button into the top-right corner of the video while the mouse moves (same as Ctrl+J)"
+                         FontSize="11" Foreground="#71717a" TextWrapping="Wrap" />
+
+              <CheckBox Content="Show previous/next subtitle buttons" IsChecked="{Binding SubtitleNavButtonsEnabled}"
+                        Margin="0,8,0,0" />
+              <TextBlock Text="Buttons in the bottom corners that jump to the previous or next subtitle line"
                          FontSize="11" Foreground="#71717a" TextWrapping="Wrap" />
             </StackPanel>
 
