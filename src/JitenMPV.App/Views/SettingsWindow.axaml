@@ -825,6 +825,7 @@
             <StackPanel Spacing="8">
               <TextBlock Text="CONTENT" Classes="section-header" />
               <WrapPanel Orientation="Horizontal">
+                <CheckBox Content="Furigana" IsChecked="{Binding PopupFurigana}" Margin="0,0,16,0" />
                 <CheckBox Content="Pitch accent" IsChecked="{Binding PopupShowPitch}" Margin="0,0,16,0" />
                 <CheckBox Content="Frequency rank" IsChecked="{Binding PopupShowFrequency}" Margin="0,0,16,0" />
                 <CheckBox Content="Conjugation" IsChecked="{Binding PopupShowConjugation}" />

@@ -82,6 +82,10 @@ public sealed class PluginSettings
     [JsonPropertyName("popup_hide_after_action")]
     public bool PopupHideAfterAction { get; set; }
 
+    /// Sets the reading as ruby over the headword instead of as a bracketed line above it.
+    [JsonPropertyName("popup_furigana")]
+    public bool PopupFurigana { get; set; } = true;
+
     [JsonPropertyName("popup_show_pitch")]
     public bool PopupShowPitch { get; set; } = true;
 

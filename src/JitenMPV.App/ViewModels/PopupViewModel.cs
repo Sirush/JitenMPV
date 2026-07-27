@@ -8,6 +8,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using JitenMPV.Core.Api.Models;
 using JitenMPV.Core.Interaction;
+using JitenMPV.Core.Text;
 
 namespace JitenMPV.App.ViewModels;
 
@@ -16,6 +17,11 @@ public sealed record DeckOptionItem(DeckOption Option, ICommand Pick)
 {
     public string Name => Option.Name;
 }
+
+/// <param name="Ruby">
+/// Never empty: a blank line box keeps okurigana sitting on the same baseline as the annotated runs.
+/// </param>
+public sealed record FuriganaItem(string Text, string Ruby);
 
 public sealed record StateBadgeItem(KnownState State)
 {
@@ -73,6 +79,8 @@ public partial class PopupViewModel : ViewModelBase
     [ObservableProperty] private bool _headwordLinkEnabled;
     [ObservableProperty] private bool _moveActionsBottom;
     [ObservableProperty] private bool _showReading;
+    [ObservableProperty] private bool _showFurigana;
+    [ObservableProperty] private List<FuriganaItem> _furiganaSegments = [];
     [ObservableProperty] private bool _showFrequency;
     [ObservableProperty] private bool _showPartsOfSpeech;
     [ObservableProperty] private bool _showPitch;
@@ -182,9 +190,18 @@ public partial class PopupViewModel : ViewModelBase
     public void Update(PopupData data)
     {
         Spelling = data.Spelling;
-        Reading = data.Reading;
+        // With ruby asked for, a reading it could not annotate still reads better as bare kana.
+        Reading = data.ShowFurigana ? FuriganaParser.ToKana(data.Reading) : data.Reading;
         FrequencyRank = data.FrequencyRank;
-        ShowReading = !string.IsNullOrEmpty(data.Reading) && data.Reading != data.Spelling;
+        var segments = data.ShowFurigana
+            ? FuriganaParser.ForSpelling(data.Spelling, data.Reading)
+            : null;
+        ShowFurigana = segments is not null;
+        FuriganaSegments = segments is null
+            ? []
+            : [..segments.Select(s => new FuriganaItem(s.Text, s.Ruby.Length > 0 ? s.Ruby : " "))];
+
+        ShowReading = !ShowFurigana && !string.IsNullOrEmpty(Reading) && Reading != data.Spelling;
         ShowFrequency = data.FrequencyRank > 0;
 
         ShowPartsOfSpeech = data.PartsOfSpeech.Count > 0;

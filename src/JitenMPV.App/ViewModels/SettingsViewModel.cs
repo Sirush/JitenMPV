@@ -73,6 +73,7 @@ public partial class SettingsViewModel : ViewModelBase
     [ObservableProperty] private int _popupBgOpacity;
     [ObservableProperty] private string _popupBgColor = "";
     [ObservableProperty] private int _popupMaxMeanings;
+    [ObservableProperty] private bool _popupFurigana;
     [ObservableProperty] private bool _popupShowPitch;
     [ObservableProperty] private bool _popupPitchDiagram;
     [ObservableProperty] private bool _popupShowFrequency;
@@ -303,6 +304,7 @@ public partial class SettingsViewModel : ViewModelBase
         PopupBgOpacity = OpacityToPercent(s.PopupBgOpacity);
         PopupBgColor = s.PopupBgColor;
         PopupMaxMeanings = s.PopupMaxMeanings;
+        PopupFurigana = s.PopupFurigana;
         PopupShowPitch = s.PopupShowPitch;
         PopupPitchDiagram = s.PopupPitchDiagram;
         PitchColoringEnabled = s.PitchColoringEnabled;
@@ -475,6 +477,7 @@ public partial class SettingsViewModel : ViewModelBase
             PopupBgOpacity = PercentToOpacity(PopupBgOpacity),
             PopupBgColor = PopupBgColor,
             PopupMaxMeanings = PopupMaxMeanings,
+            PopupFurigana = PopupFurigana,
             PopupShowPitch = PopupShowPitch,
             PopupPitchDiagram = PopupPitchDiagram,
             PitchColoringEnabled = PitchColoringEnabled,
@@ -851,6 +854,7 @@ public partial class SettingsViewModel : ViewModelBase
                 PopupBgOpacity = OpacityToPercent(defaults.PopupBgOpacity);
                 PopupBgColor = defaults.PopupBgColor;
                 PopupMaxMeanings = defaults.PopupMaxMeanings;
+                PopupFurigana = defaults.PopupFurigana;
                 PopupShowPitch = defaults.PopupShowPitch;
                 PopupPitchDiagram = defaults.PopupPitchDiagram;
                 PopupShowFrequency = defaults.PopupShowFrequency;

@@ -12,6 +12,7 @@ using JitenMPV.App.Media;
 using JitenMPV.Core.Interaction;
 using JitenMPV.Core.Media;
 using JitenMPV.Core.Plugin;
+using JitenMPV.Core.Text;
 
 namespace JitenMPV.App.ViewModels;
 
@@ -36,8 +37,15 @@ public partial class MiningReviewViewModel : ViewModelBase
         _preview = preview;
 
         Headword = data.Spelling;
-        Reading = data.Reading;
         SurfaceForm = data.SurfaceForm;
+
+        var segments = FuriganaParser.ForSpelling(data.Spelling, data.Reading);
+        ShowFurigana = segments is not null;
+        FuriganaSegments = segments is null
+            ? []
+            : [..segments.Select(s => new FuriganaItem(s.Text, s.Ruby.Length > 0 ? s.Ruby : " "))];
+        Reading = FuriganaParser.ToKana(data.Reading);
+        ShowReading = !ShowFurigana && Reading.Length > 0 && Reading != data.Spelling;
 
         Peaks = data.Waveform.Peaks;
         WindowStart = data.Waveform.WindowStart;
@@ -82,7 +90,10 @@ public partial class MiningReviewViewModel : ViewModelBase
     }
 
     public string Headword { get; }
+    public IReadOnlyList<FuriganaItem> FuriganaSegments { get; }
+    public bool ShowFurigana { get; }
     public string Reading { get; }
+    public bool ShowReading { get; }
     public string? SurfaceForm { get; }
     public float[] Peaks { get; }
     public double WindowStart { get; }

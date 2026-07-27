@@ -41,8 +41,27 @@
   <StackPanel Margin="20" Spacing="14">
 
     <StackPanel Orientation="Horizontal" Spacing="12">
-      <TextBlock Text="{Binding Headword}" FontSize="22" FontWeight="Bold" Foreground="#ffffff" />
-      <TextBlock Text="{Binding Reading}" FontSize="15" Foreground="#a1a1aa" VerticalAlignment="Bottom" />
+      <TextBlock Text="{Binding Headword}" FontSize="22" FontWeight="Bold" Foreground="#ffffff"
+                 IsVisible="{Binding !ShowFurigana}" />
+      <ItemsControl ItemsSource="{Binding FuriganaSegments}" IsVisible="{Binding ShowFurigana}">
+        <ItemsControl.ItemsPanel>
+          <ItemsPanelTemplate>
+            <StackPanel Orientation="Horizontal" />
+          </ItemsPanelTemplate>
+        </ItemsControl.ItemsPanel>
+        <ItemsControl.ItemTemplate>
+          <DataTemplate DataType="vm:FuriganaItem">
+            <StackPanel>
+              <TextBlock Text="{Binding Ruby}" FontSize="11" Foreground="#a1a1aa"
+                         HorizontalAlignment="Center" Margin="0,0,0,-2" />
+              <TextBlock Text="{Binding Text}" FontSize="22" FontWeight="Bold" Foreground="#ffffff"
+                         HorizontalAlignment="Center" />
+            </StackPanel>
+          </DataTemplate>
+        </ItemsControl.ItemTemplate>
+      </ItemsControl>
+      <TextBlock FontSize="15" Foreground="#a1a1aa" VerticalAlignment="Bottom"
+                 IsVisible="{Binding ShowReading}"><Run Text="(" /><Run Text="{Binding Reading}" /><Run Text=")" /></TextBlock>
     </StackPanel>
 
     <Border Background="#2a2416" BorderBrush="#a16207" BorderThickness="1" CornerRadius="8"

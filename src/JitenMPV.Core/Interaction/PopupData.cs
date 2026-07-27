@@ -8,6 +8,8 @@ public sealed record PopupData
 {
     public required string Spelling { get; init; }
     public required string Reading { get; init; }
+    /// Draws Reading as ruby over Spelling in place of its own line.
+    public bool ShowFurigana { get; init; }
     public int FrequencyRank { get; init; }
     public required IReadOnlyList<string> PartsOfSpeech { get; init; }
     public required IReadOnlyList<int> PitchAccents { get; init; }

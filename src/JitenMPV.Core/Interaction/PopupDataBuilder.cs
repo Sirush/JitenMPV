@@ -61,6 +61,7 @@ public sealed class PopupDataBuilder(PluginSettings settings, MiningService mini
         {
             Spelling = word.Spelling,
             Reading = word.Reading,
+            ShowFurigana = settings.PopupFurigana,
             FrequencyRank = settings.PopupShowFrequency ? word.FrequencyRank : 0,
             PartsOfSpeech = word.PartsOfSpeech,
             PitchAccents = settings.PopupShowPitch ? word.PitchAccents : [],
