@@ -27,7 +27,7 @@ Subtitles are parsed as they play, each word coloured by its state in your Jiten
 
 ### Windows
 
-Download **`JitenMPV-Setup.exe`** from the [releases page](https://github.com/Sirush/JitenMPV/releases) and run it. Then start mpv and press `Ctrl+J`.
+Download **[`JitenMPV-Setup.exe`](https://github.com/Sirush/JitenMPV/releases/latest/download/JitenMPV-Setup.exe)** and run it. Then start mpv and press `Ctrl+J`.
 
 It installs per-user, needs no administrator rights, and puts nothing system-wide. It is not code-signed, so Windows will warn that it does not recognise the publisher: choose **More info**, then **Run anyway**.
 

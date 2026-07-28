@@ -231,12 +231,13 @@ public sealed class PluginHost(
         var settings = preloaded ?? await SettingsManager.LoadAsync(ct);
         _settings = settings;
 
+        // Ctrl+J is bound over IPC further down, so aborting here would remove the only way to fix
+        // the problem being reported. ReloadSettings picks the key up live once it is set.
         if (string.IsNullOrEmpty(settings.ApiKey))
         {
-            Console.Error.WriteLine("ERROR: No API key configured.");
-            Console.Error.WriteLine($"Set api_key in: {Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "jiten-mpv", "config.json")}");
+            logger.LogWarning("No API key configured; set one from Ctrl+J or in {Path}",
+                Path.Combine(AppPaths.ConfigDir, "config.json"));
             await SettingsManager.SaveAsync(settings, ct);
-            return;
         }
 
         var apiClient = new JitenApiClient(
@@ -530,6 +531,10 @@ public sealed class PluginHost(
     private async Task ShowStartupNoticesAsync(
         MpvIpcClient ipc, PluginSettings settings, CancellationToken ct)
     {
+        // Nothing else is worth saying while no lookup can succeed, and queueing three notices
+        // behind this one would bury it.
+        if (await WarnIfNoApiKeyAsync(ipc, settings, ct)) return;
+
         Func<Task<bool>>[] notices =
         [
             () => WarnIfFfmpegMissingAsync(ipc, settings, ct),
@@ -540,6 +545,19 @@ public sealed class PluginHost(
         foreach (var notice in notices)
             if (await notice())
                 await Task.Delay(NoticeDurationMs + 500, ct);
+    }
+
+    /// Without this a fresh install reads as a plugin that does nothing: the settings window is
+    /// reachable, but nothing on screen says so.
+    private static async Task<bool> WarnIfNoApiKeyAsync(
+        MpvIpcClient ipc, PluginSettings settings, CancellationToken ct)
+    {
+        if (!string.IsNullOrEmpty(settings.ApiKey)) return false;
+
+        await ipc.ShowTextAsync(
+            "jiten-mpv: no API key set, so subtitles cannot be looked up yet. "
+            + "Press Ctrl+J to paste your key from jiten.moe.", NoticeDurationMs, ct);
+        return true;
     }
 
     /// Wayland exposes no global pointer position to an unfocused client and no way for a client to

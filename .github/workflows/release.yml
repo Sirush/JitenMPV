@@ -170,3 +170,23 @@ jobs:
         with:
           files: dist/*
           generate_release_notes: true
+          # The generated changelog is appended below this block. Links are pinned to this tag
+          # rather than /latest/, so the notes of an old release keep pointing at its own assets.
+          body: |
+            ### Install
+
+            **Windows**: download and run [JitenMPV-Setup.exe](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/JitenMPV-Setup.exe). It installs per-user and needs no administrator rights. Windows will warn that it does not recognise the publisher: choose **More info**, then **Run anyway**.
+
+            Or, from a terminal:
+
+            ```powershell
+            irm https://raw.githubusercontent.com/${{ github.repository }}/master/installers/windows.ps1 | iex
+            ```
+
+            **Linux and macOS**
+
+            ```sh
+            curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/master/installers/unix.sh | sh
+            ```
+
+            Then start mpv and press `Ctrl+J`. Full instructions, including manual installation, are in the [README](https://github.com/${{ github.repository }}#installation).

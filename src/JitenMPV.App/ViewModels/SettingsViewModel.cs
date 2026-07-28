@@ -275,10 +275,25 @@ public partial class SettingsViewModel : ViewModelBase
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(CanInstallUpdate))]
+    [NotifyPropertyChangedFor(nameof(CanCheckForUpdates))]
     private bool _isUpdating;
 
     [ObservableProperty] private double _updatePercent;
     [ObservableProperty] private string _updateStage = "";
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanCheckForUpdates))]
+    private bool _isCheckingUpdate;
+
+    [ObservableProperty] private string _updateCheckStatus = "";
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(UpdateCheckStatusColor))]
+    private bool _updateCheckFailed;
+
+    public string UpdateCheckStatusColor => UpdateCheckFailed ? "#fca5a5" : "#a1a1aa";
+
+    public bool CanCheckForUpdates => !IsCheckingUpdate && !IsUpdating;
 
     /// Survives a finished update for the same reason the install banner does: the outcome is
     /// what the user came to the banner for.
@@ -292,6 +307,42 @@ public partial class SettingsViewModel : ViewModelBase
 
     private async Task CheckForUpdateAsync()
         => AvailableUpdate = await UpdateChecker.CheckAsync(UpdateCheckEnabled, CancellationToken.None);
+
+    [RelayCommand]
+    private async Task CheckForUpdatesNowAsync()
+    {
+        if (IsCheckingUpdate) return;
+
+        IsCheckingUpdate = true;
+        UpdateCheckFailed = false;
+        UpdateCheckStatus = "Checking...";
+
+        try
+        {
+            var result = await UpdateChecker.CheckNowAsync(CancellationToken.None);
+            AvailableUpdate = result.Update;
+
+            // An unreachable GitHub also yields no update, and calling that "up to date" would be
+            // a guess presented as a fact.
+            UpdateCheckFailed = !result.Reachable;
+            UpdateCheckStatus = result switch
+            {
+                { Reachable: false } => "Could not reach GitHub. Try again later.",
+                { Update: { } update } => $"Version {update.Version} is available.",
+                _ => $"You are on the latest version ({Installer.CurrentVersion})."
+            };
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // Network failures are already folded into Reachable; this is update-state.json itself.
+            UpdateCheckFailed = true;
+            UpdateCheckStatus = "Could not check for updates.";
+        }
+        finally
+        {
+            IsCheckingUpdate = false;
+        }
+    }
 
     [RelayCommand]
     private async Task InstallUpdateAsync()

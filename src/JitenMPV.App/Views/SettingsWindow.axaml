@@ -240,6 +240,24 @@
 
             <Border Classes="divider" />
 
+            <StackPanel Spacing="8">
+              <TextBlock Text="UPDATES" Classes="section-header" />
+              <CheckBox Content="Check for new versions" IsChecked="{Binding UpdateCheckEnabled}" />
+              <TextBlock Text="Check daily for new releases. Nothing is downloaded until you press Install update."
+                         FontSize="11" Foreground="#71717a" TextWrapping="Wrap" />
+              <StackPanel Orientation="Horizontal" Spacing="10">
+                <Button Content="Check now" Classes="secondary"
+                        Command="{Binding CheckForUpdatesNowCommand}"
+                        IsEnabled="{Binding CanCheckForUpdates}" />
+                <TextBlock Text="{Binding UpdateCheckStatus}" FontSize="12" VerticalAlignment="Center"
+                           TextWrapping="Wrap"
+                           Foreground="{Binding UpdateCheckStatusColor, Converter={StaticResource StringToBrush}}"
+                           IsVisible="{Binding UpdateCheckStatus, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+              </StackPanel>
+            </StackPanel>
+
+            <Border Classes="divider" />
+
             <Expander Header="Advanced API Settings">
               <StackPanel Spacing="8" Margin="0,8,0,0">
                 <StackPanel Spacing="4">
@@ -1128,15 +1146,6 @@
                 <TextBox Text="{Binding PluginStartKey}" Width="120" PlaceholderText="F10" />
               </StackPanel>
               <TextBlock Text="An mpv key name, such as F10, Ctrl+j or ALT+s. Takes effect when mpv restarts."
-                         FontSize="11" Foreground="#71717a" TextWrapping="Wrap" />
-            </StackPanel>
-
-            <Border Classes="divider" />
-
-            <StackPanel Spacing="8">
-              <TextBlock Text="UPDATES" Classes="section-header" />
-              <CheckBox Content="Check for new versions" IsChecked="{Binding UpdateCheckEnabled}" />
-              <TextBlock Text="Asks GitHub once a day whether a newer release exists. Nothing is downloaded until you press Install update."
                          FontSize="11" Foreground="#71717a" TextWrapping="Wrap" />
             </StackPanel>
 

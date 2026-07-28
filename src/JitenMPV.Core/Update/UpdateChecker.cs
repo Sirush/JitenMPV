@@ -9,6 +9,10 @@ public sealed record UpdateInfo(string Version, string TagName)
     public string ReleaseNotesUrl => $"{UpdateChecker.ReleasesUrl}/tag/{TagName}";
 }
 
+/// <param name="Reachable">False when GitHub could not be asked, so a null <paramref name="Update"/>
+/// means "unknown" rather than "up to date". Only a user-initiated check can tell the difference.</param>
+public sealed record UpdateCheckResult(UpdateInfo? Update, bool Reachable);
+
 /// Asks GitHub whether a newer release exists. Nothing is ever downloaded here; the user decides
 /// that in the settings window.
 public static class UpdateChecker
@@ -52,7 +56,34 @@ public static class UpdateChecker
         return Available(state);
     }
 
-    private static async Task RefreshAsync(UpdateState state, CancellationToken ct)
+    /// The Check now button: ignores both the daily throttle and the enabled flag, because pressing
+    /// it is the request.
+    public static async Task<UpdateCheckResult> CheckNowAsync(CancellationToken ct)
+    {
+        var state = await UpdateState.LoadAsync(ct);
+        bool reachable;
+
+        try
+        {
+            reachable = await RefreshAsync(state, ct);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException or JsonException)
+        {
+            state.LastCheckUtc = DateTimeOffset.UtcNow;
+            reachable = false;
+        }
+
+        await UpdateState.SaveAsync(state, ct);
+        return new UpdateCheckResult(Available(state), reachable);
+    }
+
+    /// <returns>False when the answer could not be trusted, so the caller can say so instead of
+    /// reporting the stale known version as current.</returns>
+    private static async Task<bool> RefreshAsync(UpdateState state, CancellationToken ct)
     {
         // This endpoint excludes drafts and prereleases by definition, so nothing here has to.
         using var request = new HttpRequestMessage(
@@ -64,17 +95,19 @@ public static class UpdateChecker
         using var response = await Http.SendAsync(request, ct);
         state.LastCheckUtc = DateTimeOffset.UtcNow;
 
-        if (response.StatusCode == HttpStatusCode.NotModified || !response.IsSuccessStatusCode)
-            return;
+        // 304 means the cached answer is still the right one, which is a successful check.
+        if (response.StatusCode == HttpStatusCode.NotModified) return true;
+        if (!response.IsSuccessStatusCode) return false;
 
         using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct));
-        if (doc.RootElement.ValueKind != JsonValueKind.Object) return;
-        if (!doc.RootElement.TryGetProperty("tag_name", out var tag)) return;
-        if (tag.GetString() is not { Length: > 0 } tagName) return;
+        if (doc.RootElement.ValueKind != JsonValueKind.Object) return false;
+        if (!doc.RootElement.TryGetProperty("tag_name", out var tag)) return false;
+        if (tag.GetString() is not { Length: > 0 } tagName) return false;
 
         state.ETag = response.Headers.ETag?.ToString();
         state.KnownLatestTag = tagName;
         state.KnownLatestVersion = tagName.TrimStart('v', 'V');
+        return true;
     }
 
     private static UpdateInfo? Available(UpdateState state)
