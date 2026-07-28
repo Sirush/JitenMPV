@@ -4,6 +4,8 @@ An mpv plugin that colours Japanese subtitles by how well you know each word, po
 
 Subtitles are parsed as they play, each word coloured by its state in your Jiten account. Hover a word for its dictionary entry, review it, or mine it to Jiten with a screenshot, audio clip and sentence.
 
+![An anime frame in mpv with a Japanese subtitle whose words are coloured by knowledge state, and a dictionary popup for 魔女 showing furigana, pitch accent, frequency rank and review buttons](docs/images/main.jpg)
+
 ## Features
 
 - Subtitle colouring by **word state**, with themes and per-state customization
