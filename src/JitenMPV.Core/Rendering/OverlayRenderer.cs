@@ -9,8 +9,6 @@ namespace JitenMPV.Core.Rendering;
 
 public sealed class OverlayRenderer
 {
-    private static readonly WordStyleState UnparsedBlurReset = StyleResolver.BlurOffStyle.MergeOver(ThemePresets.Unparsed);
-
     private readonly StyleResolver _styleResolver;
     private readonly OsdState _osd;
     private volatile RenderSnapshot _snap;
@@ -93,26 +91,21 @@ public sealed class OverlayRenderer
         var sb = new StringBuilder();
         sb.Append(snap.Preamble);
 
-        var unparsed = snap.Settings.BlurEnabled ? UnparsedBlurReset : ThemePresets.Unparsed;
+        double border = snap.Settings.BorderSize;
 
         int lastEnd = 0;
         foreach (var token in entry.Tokens)
         {
             if (token.Start > lastEnd)
             {
-                AssTagBuilder.AppendStyle(sb, unparsed);
+                AssTagBuilder.AppendStyle(sb, ThemePresets.Unparsed, border);
                 AssTagBuilder.AppendEscapedText(sb, originalText, lastEnd, token.Start - lastEnd);
             }
 
             var style = _styleResolver.Resolve(
-                token, entry.VocabStates, iPlusOneWords, frequencyWords, entry.PitchClasses);
-            if (revealedWords is not null && style.Blur is > 0
-                && revealedWords.Contains((token.WordId, token.ReadingIndex)))
-            {
-                style = StyleResolver.BlurOffStyle.MergeOver(style);
-            }
+                token, entry.VocabStates, iPlusOneWords, frequencyWords, entry.PitchClasses, revealedWords);
 
-            AssTagBuilder.AppendStyle(sb, style);
+            AssTagBuilder.AppendStyle(sb, style, border);
             AssTagBuilder.AppendEscapedText(sb, originalText, token.Start, token.Length);
 
             lastEnd = token.Start + token.Length;
@@ -120,7 +113,7 @@ public sealed class OverlayRenderer
 
         if (lastEnd < originalText.Length)
         {
-            AssTagBuilder.AppendStyle(sb, unparsed);
+            AssTagBuilder.AppendStyle(sb, ThemePresets.Unparsed, border);
             AssTagBuilder.AppendEscapedText(sb, originalText, lastEnd, originalText.Length - lastEnd);
         }
 
@@ -129,9 +122,10 @@ public sealed class OverlayRenderer
 
     public string RenderPlain(string text)
     {
+        var snap = _snap;
         var sb = new StringBuilder();
-        sb.Append(_snap.Preamble);
-        AssTagBuilder.AppendStyle(sb, ThemePresets.Unparsed);
+        sb.Append(snap.Preamble);
+        AssTagBuilder.AppendStyle(sb, ThemePresets.Unparsed, snap.Settings.BorderSize);
         AssTagBuilder.AppendEscapedText(sb, text, 0, text.Length);
         return sb.ToString();
     }

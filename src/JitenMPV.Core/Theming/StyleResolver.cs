@@ -12,8 +12,7 @@ public sealed class StyleResolver
         WordStyleState? FrequencyOverride,
         IReadOnlyDictionary<PitchClass, WordStyleState>? PitchStyles,
         HashSet<KnownState>? BlurStates,
-        WordStyleState? BlurOnStyle,
-        WordStyleState BlurOffStyle);
+        WordStyleState? BlurOnStyle);
 
     private readonly WordStyleState _unparsed;
     private volatile ThemeSnapshot _snapshot;
@@ -42,8 +41,6 @@ public sealed class StyleResolver
         _snapshot = BuildSnapshot(newTheme, newIPlusOneOverride, newFrequencyOverride, blurStates, blurStrength, pitchStyles);
     }
 
-    internal static readonly WordStyleState BlurOffStyle = new() { Blur = 0 };
-
     private static ThemeSnapshot BuildSnapshot(
         IReadOnlyDictionary<KnownState, WordStyleState> theme,
         WordStyleState? iPlusOneOverride,
@@ -52,8 +49,12 @@ public sealed class StyleResolver
         double blurStrength,
         IReadOnlyDictionary<PitchClass, WordStyleState>? pitchStyles)
     {
-        var blurOn = blurStates is not null ? new WordStyleState { Blur = blurStrength } : null;
-        return new ThemeSnapshot(theme, iPlusOneOverride, frequencyOverride, pitchStyles, blurStates, blurOn, BlurOffStyle);
+        // libass blurs the border bitmap whenever one exists and leaves the fill sharp, so the
+        // outline and shadow have to go for \blur to reach the glyph itself.
+        var blurOn = blurStates is not null
+            ? new WordStyleState { Blur = blurStrength, OutlineSize = 0, ShadowDepth = 0 }
+            : null;
+        return new ThemeSnapshot(theme, iPlusOneOverride, frequencyOverride, pitchStyles, blurStates, blurOn);
     }
 
     public static HashSet<KnownState>? BuildBlurStates(PluginSettings settings)
@@ -68,7 +69,8 @@ public sealed class StyleResolver
         IDictionary<(int WordId, byte ReadingIndex), KnownState> vocabStates,
         HashSet<(int WordId, byte ReadingIndex)>? iPlusOneWords = null,
         HashSet<(int WordId, byte ReadingIndex)>? frequencyWords = null,
-        IReadOnlyDictionary<(int WordId, byte ReadingIndex), PitchClass>? pitchClasses = null)
+        IReadOnlyDictionary<(int WordId, byte ReadingIndex), PitchClass>? pitchClasses = null,
+        HashSet<(int WordId, byte ReadingIndex)>? revealedWords = null)
     {
         var snap = _snapshot;
         var key = (token.WordId, token.ReadingIndex);
@@ -91,11 +93,12 @@ public sealed class StyleResolver
         if (snap.FrequencyOverride is not null && frequencyWords?.Contains(key) == true)
             style = snap.FrequencyOverride.MergeOver(style);
 
-        if (snap.BlurStates is not null)
+        // Applied last and skipped for revealed words, so a reveal restores the untouched style
+        // instead of leaving the blur's stripped outline behind.
+        if (snap.BlurStates is not null && snap.BlurStates.Contains(state)
+            && revealedWords?.Contains(key) != true)
         {
-            style = snap.BlurStates.Contains(state)
-                ? snap.BlurOnStyle!.MergeOver(style)
-                : style.Blur is not null ? snap.BlurOffStyle.MergeOver(style) : style;
+            style = snap.BlurOnStyle!.MergeOver(style);
         }
 
         return style;

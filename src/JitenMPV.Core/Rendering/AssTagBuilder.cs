@@ -6,7 +6,10 @@ namespace JitenMPV.Core.Rendering;
 
 public static class AssTagBuilder
 {
-    public static void AppendStyle(StringBuilder sb, WordStyleState style)
+    /// <param name="defaultOutline">Border width for styles that don't set one; must match the
+    /// preamble's <c>\bord</c>, since overrides persist along the line and a word that omits the
+    /// tag inherits the previous word's border.</param>
+    public static void AppendStyle(StringBuilder sb, WordStyleState style, double defaultOutline)
     {
         sb.Append('{');
 
@@ -19,8 +22,7 @@ public static class AssTagBuilder
         if (style.ShadowColorBgr is not null)
             sb.Append("\\4c&H").Append(style.ShadowColorBgr).Append('&');
 
-        if (style.OutlineSize is { } bord)
-            AppendNum(sb, "\\bord", bord);
+        AppendNum(sb, "\\bord", style.OutlineSize ?? defaultOutline);
 
         AppendNum(sb, "\\shad", style.ShadowDepth is { } shad and > 0 ? shad : 0);
 
