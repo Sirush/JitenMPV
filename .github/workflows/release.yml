@@ -22,9 +22,9 @@ jobs:
       matrix:
         rid: [win-x64, linux-x64]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v5
         with:
           # Both, so this keeps working across the net9.0 to net10.0 retarget.
           dotnet-version: |
@@ -62,7 +62,7 @@ jobs:
           # Naming the archive explicitly: a `*` glob would checksum the file being written.
           (cd dist && sha256sum "$ARCHIVE" > "$ARCHIVE.sha256")
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: jiten-mpv-${{ matrix.rid }}
           path: dist/*
@@ -75,9 +75,9 @@ jobs:
       matrix:
         rid: [osx-x64, osx-arm64]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v5
         with:
           # Both, so this keeps working across the net9.0 to net10.0 retarget.
           dotnet-version: |
@@ -106,7 +106,7 @@ jobs:
           tar -C out -czf dist/"$ARCHIVE" JitenMPV.App jiten-mpv.lua
           (cd dist && shasum -a 256 "$ARCHIVE" > "$ARCHIVE.sha256")
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: jiten-mpv-${{ matrix.rid }}
           path: dist/*
@@ -117,9 +117,9 @@ jobs:
     runs-on: windows-latest
     needs: build
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v5
         with:
           name: jiten-mpv-win-x64
           path: artifact
@@ -133,8 +133,7 @@ jobs:
         shell: pwsh
         run: Expand-Archive artifact/jiten-mpv-win-x64.zip -DestinationPath publish
 
-      # Inno Setup was dropped from the windows-2025 image and the request to restore it was closed
-      # as not planned, so it has to be installed per run.
+      # Not guaranteed on the runner image, which dropped it once already; a no-op when present.
       - name: Install Inno Setup
         shell: pwsh
         run: choco install innosetup -y --no-progress
@@ -150,7 +149,7 @@ jobs:
           (Get-FileHash dist\JitenMPV-Setup.exe -Algorithm SHA256).Hash.ToLower() +
             "  JitenMPV-Setup.exe" | Set-Content dist\JitenMPV-Setup.exe.sha256 -NoNewline
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: jiten-mpv-setup
           path: dist/*
@@ -162,12 +161,12 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v5
         with:
           path: dist
           merge-multiple: true
 
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           files: dist/*
           generate_release_notes: true

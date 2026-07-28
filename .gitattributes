@@ -1,0 +1,5 @@
+# installers/unix.sh is executed straight from raw.githubusercontent by `sh`, which rejects CRLF.
+# Without this, core.autocrlf on a Windows clone rewrites it locally and it can be committed back.
+* text=auto eol=lf
+*.ps1 text eol=crlf
+*.bat text eol=crlf
