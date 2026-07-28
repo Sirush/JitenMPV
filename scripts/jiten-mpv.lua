@@ -1,17 +1,84 @@
 local utils = require "mp.utils"
 
-local function get_exe_path()
-    local appdata = os.getenv("APPDATA")
-    if appdata then
-        return utils.join_path(utils.join_path(appdata, "jiten-mpv"), "JitenMPV.App.exe")
-    end
+local is_windows = package.config:sub(1, 1) == "\\"
+
+local function home_path(...)
     local home = os.getenv("HOME") or ""
-    return utils.join_path(
-        utils.join_path(utils.join_path(home, ".local"), "share"),
-        utils.join_path("jiten-mpv", "JitenMPV.App"))
+    local path = home
+    for _, part in ipairs({ ... }) do
+        path = utils.join_path(path, part)
+    end
+    return path
 end
 
+-- Distro packages install to /usr/bin rather than a per-user directory, so without this override
+-- the fixed path below would make packaging JitenMPV impossible.
+local function get_exe_path()
+    local override = os.getenv("JITEN_MPV_EXE")
+    if override and override ~= "" then return override end
+
+    if is_windows then
+        return utils.join_path(
+            utils.join_path(os.getenv("APPDATA") or "", "jiten-mpv"), "JitenMPV.App.exe")
+    end
+
+    -- Must match AppPaths.AppDir on the .NET side; a mismatch means mpv spawns a path that does
+    -- not exist and the plugin silently never starts.
+    local xdg_data = os.getenv("XDG_DATA_HOME")
+    if xdg_data and xdg_data:sub(1, 1) == "/" then
+        return utils.join_path(utils.join_path(xdg_data, "jiten-mpv"), "JitenMPV.App")
+    end
+
+    return home_path(".local", "share", "jiten-mpv", "JitenMPV.App")
+end
+
+-- Config lives beside neither the exe nor mpv's own config on Unix: it follows XDG_CONFIG_HOME
+-- while the exe follows XDG_DATA_HOME. Mirrors AppPaths.ConfigDir.
+local function get_config_path()
+    if is_windows then
+        return utils.join_path(
+            utils.join_path(os.getenv("APPDATA") or "", "jiten-mpv"), "config.json")
+    end
+
+    local xdg_config = os.getenv("XDG_CONFIG_HOME")
+    if xdg_config and xdg_config:sub(1, 1) == "/" then
+        return utils.join_path(utils.join_path(xdg_config, "jiten-mpv"), "config.json")
+    end
+
+    return home_path(".config", "jiten-mpv", "config.json")
+end
+
+-- Only the settings that decide whether the plugin starts are read here; everything else reaches
+-- the plugin through its own config load. Read once, so changes need an mpv restart.
+local function read_startup_settings()
+    local defaults = { autostart = true, start_key = "F10" }
+
+    local file = io.open(get_config_path(), "r")
+    if not file then return defaults end
+
+    local contents = file:read("*a")
+    file:close()
+
+    local parsed = utils.parse_json(contents or "")
+    if type(parsed) ~= "table" then return defaults end
+
+    if parsed.plugin_autostart == false then defaults.autostart = false end
+    if type(parsed.plugin_start_key) == "string" and parsed.plugin_start_key ~= "" then
+        defaults.start_key = parsed.plugin_start_key
+    end
+
+    return defaults
+end
+
+local startup = read_startup_settings()
+
 local plugin_started = false
+
+-- The plugin hides mpv's own subtitles for as long as it is drawing its coloured ones. If it dies
+-- the overlay dies with it, so without this the rest of the session plays with no subtitles at all.
+-- Held here rather than in the plugin because a plugin that has crashed cannot restore anything.
+local sub_visibility_before_plugin = nil
+
 local mouse_tracking = false
 local last_mouse_x, last_mouse_y = -1, -1
 local was_in_zone = false
@@ -82,13 +149,25 @@ local nav_actions = {
 
 local nav_keys = { prev_sub = "Ctrl+LEFT", next_sub = "Ctrl+RIGHT", loop_sub = "Ctrl+l" }
 
+-- Held so the nav keys can be claimed only while a plugin is connected: bound at script load they
+-- would take Ctrl+LEFT and friends away from an mpv the user never asked JitenMPV to touch.
+local nav_keys_bound = false
+
 local function bind_nav_key(name)
     local id = "jiten-" .. name
     mp.remove_key_binding(id)
 
+    if not nav_keys_bound then return end
+
     -- Not forced: a key the user has already bound in input.conf keeps its own meaning.
     local key = nav_keys[name]
     if key and key ~= "" then mp.add_key_binding(key, id, nav_actions[name]) end
+end
+
+local function set_nav_keys_bound(bound)
+    if nav_keys_bound == bound then return end
+    nav_keys_bound = bound
+    for name in pairs(nav_keys) do bind_nav_key(name) end
 end
 
 local BUTTON_IDLE_S = 0.8
@@ -123,9 +202,10 @@ local bar = {
     press_consumed = false
 }
 
--- Clicking the settings button can only reach a plugin that has told us its IPC client name, so an
--- unnamed plugin means no button rather than a button that does nothing. Subtitle stepping is
--- mpv's own, and stays available while the plugin is down.
+-- Every button requires a connected plugin, identified by the IPC client name it reports. Subtitle
+-- stepping and looping are built from plain mpv commands and would work on their own, but a user
+-- who has not started JitenMPV should get an untouched mpv rather than controls belonging to a
+-- plugin that is not running.
 local buttons = {
     {
         label = "Jiten Settings",
@@ -136,20 +216,20 @@ local buttons = {
     {
         label = "« Prev sub",
         align = 1,
-        available = function() return bar.nav_enabled and bar.has_subs end,
+        available = function() return bar.nav_enabled and bar.has_subs and bar.client ~= nil end,
         action = nav_actions.prev_sub
     },
     {
         label = "Loop sub",
         align = 1,
-        available = function() return bar.nav_enabled and bar.has_subs end,
+        available = function() return bar.nav_enabled and bar.has_subs and bar.client ~= nil end,
         active = function() return loop.enabled end,
         action = nav_actions.loop_sub
     },
     {
         label = "Next sub »",
         align = 3,
-        available = function() return bar.nav_enabled and bar.has_subs end,
+        available = function() return bar.nav_enabled and bar.has_subs and bar.client ~= nil end,
         action = nav_actions.next_sub
     }
 }
@@ -399,6 +479,7 @@ local function initialize()
     end
 
     local exe = get_exe_path()
+    sub_visibility_before_plugin = mp.get_property("sub-visibility")
     mp.msg.info("Spawning JitenMPV: " .. exe .. " plugin " .. ipc_path)
     -- Not detached: the exit callback is the only way to learn the plugin died, and without
     -- clearing the latch neither file-loaded nor F10 could ever respawn it.
@@ -409,8 +490,13 @@ local function initialize()
     }, function()
         plugin_started = false
         bar.client = nil
+        set_nav_keys_bound(false)
         bar_refresh()
-        mp.msg.warn("JitenMPV plugin exited; press F10 or load a file to restart it")
+        if sub_visibility_before_plugin then
+            mp.set_property("sub-visibility", sub_visibility_before_plugin)
+            sub_visibility_before_plugin = nil
+        end
+        mp.msg.warn("JitenMPV plugin exited; press " .. startup.start_key .. " to restart it")
     end)
 end
 
@@ -500,8 +586,14 @@ local function disable_tracking()
     bar_hide(true)
 end
 
-mp.register_event("file-loaded", initialize)
-mp.add_key_binding("F10", "jiten-mpv-toggle", initialize)
+if startup.autostart then
+    mp.register_event("file-loaded", initialize)
+else
+    mp.msg.info("JitenMPV: autostart is off, press " .. startup.start_key .. " to start it")
+end
+
+-- Bound in both modes: it is also how a plugin that died mid-session is brought back.
+mp.add_key_binding(startup.start_key, "jiten-mpv-toggle", initialize)
 
 resolve_fallbacks()
 mp.add_forced_key_binding("MBTN_LEFT", "jiten-mouse-left", on_mouse_left, { complex = true })
@@ -547,8 +639,6 @@ mp.register_event("file-loaded", function()
     bar_refresh()
 end)
 
-for name in pairs(nav_keys) do bind_nav_key(name) end
-
 mp.register_script_message("jiten-set-nav-key", function(name, key)
     if not nav_actions[name] then return end
     nav_keys[name] = key or ""
@@ -563,6 +653,7 @@ end)
 
 mp.register_script_message("jiten-set-client", function(name)
     bar.client = (name ~= nil and name ~= "") and name or nil
+    set_nav_keys_bound(bar.client ~= nil)
     bar_refresh()
 end)
 

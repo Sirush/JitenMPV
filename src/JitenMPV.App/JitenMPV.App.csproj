@@ -5,7 +5,33 @@
         <Nullable>enable</Nullable>
         <ApplicationManifest>app.manifest</ApplicationManifest>
         <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
+        <!-- Release builds override this from the git tag (-p:Version=1.2.3). -->
+        <Version>0.1.0</Version>
+        <InvariantGlobalization>true</InvariantGlobalization>
     </PropertyGroup>
+
+    <!-- The Lua script spawns this executable from a fixed path, so a publish has to yield exactly
+         one file: PublishSingleFile alone leaves SkiaSharp, HarfBuzz and ANGLE as loose native DLLs
+         that the OS loader needs on disk, and an update that replaced only the exe would then mix
+         binaries. Scoped to RID-specific builds so a plain `dotnet build` still produces PDBs. -->
+    <PropertyGroup Condition="'$(RuntimeIdentifier)' != ''">
+        <PublishSingleFile>true</PublishSingleFile>
+        <SelfContained>true</SelfContained>
+        <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+        <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+        <DebugType>none</DebugType>
+    </PropertyGroup>
+
+    <!-- DebugType only suppresses our own symbols. SkiaSharp and HarfBuzz ship 100 MB of PDBs as
+         native runtime assets, which no property excludes, and they would otherwise more than
+         triple the release download. -->
+    <Target Name="RemoveNativeSymbolsFromPublish" AfterTargets="Publish"
+            Condition="'$(RuntimeIdentifier)' != ''">
+        <ItemGroup>
+            <_PublishedSymbolFiles Include="$(PublishDir)**\*.pdb" />
+        </ItemGroup>
+        <Delete Files="@(_PublishedSymbolFiles)" />
+    </Target>
 
     <ItemGroup>
         <Folder Include="Models\" />

@@ -18,7 +18,7 @@ public sealed class AvaloniaPopupPresenter : IPopupPresenter
     private DictionaryPopupWindow? _window;
     private PopupViewModel? _viewModel;
     private volatile bool _isVisible;
-    private PixelPoint _lastCursorPos;
+    private PixelPoint? _lastCursorPos;
     private PopupPositionMode _positionMode = PopupPositionMode.AboveSubtitle;
     private PopupAnchor _fixedAnchor = PopupAnchor.TopCenter;
     private int _offsetPx = 60;
@@ -111,11 +111,13 @@ public sealed class AvaloniaPopupPresenter : IPopupPresenter
         _window.MaxWidth = maxWidthPx;
     }
 
-    private void PositionWindow(PixelPoint cursorPos)
+    private void PositionWindow(PixelPoint? cursorPos)
     {
         if (_window is null) return;
 
-        var screen = _window.Screens.ScreenFromPoint(cursorPos);
+        var screen = cursorPos is { } known
+            ? _window.Screens.ScreenFromPoint(known)
+            : _window.Screens.Primary;
         if (screen is null) return;
 
         var workArea = screen.WorkingArea;
@@ -125,9 +127,13 @@ public sealed class AvaloniaPopupPresenter : IPopupPresenter
         int windowWidth = bounds.Width > 0 ? (int)(bounds.Width * scaling) : 350;
         int windowHeight = bounds.Height > 0 ? (int)(bounds.Height * scaling) : 250;
 
-        var (x, y) = _positionMode == PopupPositionMode.Fixed
-            ? AnchoredPosition(workArea, windowWidth, windowHeight)
-            : CursorRelativePosition(cursorPos, workArea, windowWidth, windowHeight);
+        // Without a cursor there is nothing to be relative to, and the clamped result would pin the
+        // popup to the top-left corner. Anchoring it near the subtitles keeps it usable on systems
+        // that cannot report a global pointer position, such as a Wayland session.
+        var (x, y) = _positionMode == PopupPositionMode.Fixed || cursorPos is null
+            ? AnchoredPosition(workArea, windowWidth, windowHeight,
+                cursorPos is null ? PopupAnchor.BottomCenter : _fixedAnchor)
+            : CursorRelativePosition(cursorPos.Value, workArea, windowWidth, windowHeight);
 
         _window.Position = new PixelPoint(
             Math.Clamp(x, workArea.X, Math.Max(workArea.X, workArea.Right - windowWidth)),
@@ -151,16 +157,17 @@ public sealed class AvaloniaPopupPresenter : IPopupPresenter
         return (x, above < workArea.Y ? cursor.Y + _offsetPx : above);
     }
 
-    private (int X, int Y) AnchoredPosition(PixelRect workArea, int width, int height)
+    private (int X, int Y) AnchoredPosition(
+        PixelRect workArea, int width, int height, PopupAnchor anchor)
     {
-        int x = _fixedAnchor switch
+        int x = anchor switch
         {
             PopupAnchor.TopLeft or PopupAnchor.BottomLeft => workArea.X + _offsetPx,
             PopupAnchor.TopRight or PopupAnchor.BottomRight => workArea.Right - width - _offsetPx,
             _ => workArea.X + (workArea.Width - width) / 2
         };
 
-        bool top = _fixedAnchor is PopupAnchor.TopLeft or PopupAnchor.TopCenter or PopupAnchor.TopRight;
+        bool top = anchor is PopupAnchor.TopLeft or PopupAnchor.TopCenter or PopupAnchor.TopRight;
         return (x, top ? workArea.Y + _offsetPx : workArea.Bottom - height - _offsetPx);
     }
 }

@@ -368,9 +368,28 @@ public sealed class PluginSettings
     [JsonPropertyName("media_sentence_context_lines")]
     public int MediaSentenceContextLines { get; set; } = 2;
 
-    /// Empty resolves "ffmpeg" from PATH.
+    /// Empty searches the managed install, PATH, then well-known locations.
     [JsonPropertyName("ffmpeg_path")]
     public string FfmpegPath { get; set; } = "";
+
+    /// Suppresses the startup OSD notice for users who have decided to live without ffmpeg.
+    [JsonPropertyName("ffmpeg_prompt_dismissed")]
+    public bool FfmpegPromptDismissed { get; set; }
+
+    /// Asks GitHub once a day whether a newer release exists. Nothing is ever downloaded without
+    /// the user asking for it.
+    [JsonPropertyName("update_check_enabled")]
+    public bool UpdateCheckEnabled { get; set; } = true;
+
+    /// Read by the Lua script, not by this process: it decides whether to spawn the plugin on
+    /// file-loaded. Changes take effect when mpv restarts, since the script reads it once at load.
+    [JsonPropertyName("plugin_autostart")]
+    public bool PluginAutostart { get; set; } = true;
+
+    /// Key that starts the plugin manually. Bound whether or not autostart is on, so a crashed
+    /// plugin can always be brought back.
+    [JsonPropertyName("plugin_start_key")]
+    public string PluginStartKey { get; set; } = "F10";
 
     [JsonPropertyName("popup_keybinds")]
     public Dictionary<string, string>? PopupKeybinds { get; set; } = new()

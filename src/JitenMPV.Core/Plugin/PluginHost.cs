@@ -11,6 +11,7 @@ using JitenMPV.Core.Rendering;
 using JitenMPV.Core.Pitch;
 using JitenMPV.Core.Subtitles;
 using JitenMPV.Core.Theming;
+using JitenMPV.Core.Update;
 using Microsoft.Extensions.Logging;
 
 namespace JitenMPV.Core.Plugin;
@@ -386,6 +387,7 @@ public sealed class PluginHost(
 
             var readLoop = ipcClient.RunAsync(ct);
 
+            await ipcClient.ChangeListAsync("watch-later-options", "remove", "sub-visibility", ct);
             await ipcClient.SetPropertyAsync("sub-visibility", "no", ct);
             await ipcClient.ObservePropertyAsync("sub-text", 1, ct);
             await ipcClient.ObservePropertyAsync("osd-width", 2, ct);
@@ -432,6 +434,8 @@ public sealed class PluginHost(
 
             if (settings.PreparseEnabled)
                 ReloadSubtitleSource(ipcClient, preParser, timeline, ct);
+
+            _ = RunSafe(() => ShowStartupNoticesAsync(ipcClient, settings, ct));
 
             logger.LogInformation("JitenMPV plugin running.");
             await readLoop;
@@ -518,6 +522,71 @@ public sealed class PluginHost(
 
     private Task RunSafe(Func<Task> action)
         => TaskHelper.RunSafe(action, logger);
+
+    private const int NoticeDurationMs = 6000;
+
+    /// mpv's show-text replaces whatever is already on screen, so these run one after another:
+    /// fired together, only the last would ever be read.
+    private async Task ShowStartupNoticesAsync(
+        MpvIpcClient ipc, PluginSettings settings, CancellationToken ct)
+    {
+        Func<Task<bool>>[] notices =
+        [
+            () => WarnIfFfmpegMissingAsync(ipc, settings, ct),
+            () => WarnIfWaylandAsync(ipc, ct),
+            () => NotifyUpdateAsync(ipc, settings, ct)
+        ];
+
+        foreach (var notice in notices)
+            if (await notice())
+                await Task.Delay(NoticeDurationMs + 500, ct);
+    }
+
+    /// Wayland exposes no global pointer position to an unfocused client and no way for a client to
+    /// place its own toplevel, so the dictionary popup cannot follow the word under the cursor.
+    /// Subtitle colouring is unaffected. Stated once up front rather than left to be discovered.
+    private static async Task<bool> WarnIfWaylandAsync(MpvIpcClient ipc, CancellationToken ct)
+    {
+        if (!OperatingSystem.IsLinux()) return false;
+
+        var wayland = !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("WAYLAND_DISPLAY"))
+                      || string.Equals(Environment.GetEnvironmentVariable("XDG_SESSION_TYPE"),
+                          "wayland", StringComparison.OrdinalIgnoreCase);
+        if (!wayland) return false;
+
+        await ipc.ShowTextAsync(
+            "jiten-mpv: Wayland detected. Subtitle colouring works, but dictionary popup "
+            + "positioning needs an X11 session.", NoticeDurationMs, ct);
+        return true;
+    }
+
+    /// Audio and clip mining shell out to ffmpeg, so its absence is a half-broken install rather
+    /// than a missing nicety. Without this the first symptom is a capture that silently produces
+    /// no audio, long after there is anything to connect it to.
+    private async Task<bool> WarnIfFfmpegMissingAsync(
+        MpvIpcClient ipc, PluginSettings settings, CancellationToken ct)
+    {
+        if (settings.FfmpegPromptDismissed) return false;
+        if (!settings.MediaCaptureEnabled && !settings.PreparseEnabled) return false;
+        if (await FfmpegLocator.ResolveAsync(settings.FfmpegPath, ct) is not null) return false;
+
+        await ipc.ShowTextAsync(
+            "jiten-mpv: ffmpeg is missing, so audio and clips cannot be mined. Press Ctrl+J to set it up.",
+            NoticeDurationMs, ct);
+        return true;
+    }
+
+    private static async Task<bool> NotifyUpdateAsync(
+        MpvIpcClient ipc, PluginSettings settings, CancellationToken ct)
+    {
+        if (await UpdateChecker.CheckAsync(settings.UpdateCheckEnabled, ct) is not { } update)
+            return false;
+
+        await ipc.ShowTextAsync(
+            $"jiten-mpv {update.Version} is available. Press Ctrl+J to install it.",
+            NoticeDurationMs, ct);
+        return true;
+    }
 
     private async Task OnSubtitleChangedAsync(
         string? text, MpvIpcClient ipcClient,

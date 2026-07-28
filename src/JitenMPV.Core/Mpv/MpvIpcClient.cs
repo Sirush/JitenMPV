@@ -252,6 +252,14 @@ public sealed class MpvIpcClient(string pipePath, ILogger logger) : IAsyncDispos
     public Task KeybindAsync(string key, string command, CancellationToken ct)
         => SendCommandAsync(["keybind", key, command], ct);
 
+    public Task ChangeListAsync(string option, string operation, string value, CancellationToken ct)
+        => SendCommandAsync(["change-list", option, operation, value], ct);
+
+    /// mpv's own OSD message, deliberately not the status overlay: this carries setup problems the
+    /// user needs to see even after switching the overlay off.
+    public Task ShowTextAsync(string text, int durationMs, CancellationToken ct)
+        => SendCommandAsync(["show-text", text, durationMs], ct);
+
     public async ValueTask DisposeAsync()
     {
         await _connection.DisposeAsync();

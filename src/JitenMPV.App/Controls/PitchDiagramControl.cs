@@ -51,8 +51,9 @@ public sealed class PitchDiagramControl : Control
         var color = Color.TryParse(row.Color, out var parsed) ? parsed : Colors.Gray;
         var brush = new SolidColorBrush(color);
         var pen = new Pen(brush, StrokeWidth);
-        var typeface = new Typeface(FontFamily.Parse("Noto Sans JP, Yu Gothic, sans-serif"),
-            weight: FontWeight.Bold);
+        // Naming a family here would bypass the fallback chain registered in BuildAvaloniaApp,
+        // which is what supplies the kana glyphs the default UI font lacks.
+        var typeface = new Typeface(FontFamily.Default, weight: FontWeight.Bold);
 
         var points = new Point[pattern.Count];
         for (var i = 0; i < pattern.Count; i++)

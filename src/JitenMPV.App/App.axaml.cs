@@ -19,22 +19,25 @@ public partial class App : Application
     {
         base.OnFrameworkInitializationCompleted();
 
-        if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
+        if (ApplicationLifetime is not IClassicDesktopStyleApplicationLifetime desktop) return;
+
+        Avalonia.Controls.Window window;
+        try
         {
-            try
-            {
-                var settings = await SettingsManager.LoadAsync();
-                var vm = new SettingsViewModel(settings);
-                desktop.MainWindow = new SettingsWindow { DataContext = vm };
-            }
-            catch (Exception ex)
-            {
-                desktop.MainWindow = new Avalonia.Controls.Window
-                {
-                    Title = "JitenMPV - Error",
-                    Content = new Avalonia.Controls.TextBlock { Text = $"Failed to load settings: {ex.Message}" }
-                };
-            }
+            var settings = await SettingsManager.LoadAsync();
+            window = new SettingsWindow { DataContext = new SettingsViewModel(settings) };
         }
+        catch (Exception ex)
+        {
+            window = new Avalonia.Controls.Window
+            {
+                Title = "JitenMPV - Error",
+                Content = new Avalonia.Controls.TextBlock { Text = $"Failed to load settings: {ex.Message}" }
+            };
+        }
+
+        desktop.MainWindow = window;
+
+        window.Show();
     }
 }

@@ -1,0 +1,173 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to build (without the leading v)'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  # Linux and Windows binaries are both produced here: without AOT or ReadyToRun the build compiles
+  # no native code, so dotnet just bundles Microsoft's prebuilt runtime pack for the target RID.
+  # ubuntu-24.04 is pinned because ubuntu-22.04 begins its deprecation brownouts in September 2026.
+  build:
+    runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        rid: [win-x64, linux-x64]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          # Both, so this keeps working across the net9.0 to net10.0 retarget.
+          dotnet-version: |
+            9.0.x
+            10.0.x
+
+      - name: Resolve version
+        id: version
+        run: echo "value=${{ github.event.inputs.version || github.ref_name }}" >> "$GITHUB_OUTPUT"
+
+      - name: Publish
+        run: |
+          VERSION="${{ steps.version.outputs.value }}"
+          dotnet publish src/JitenMPV.App -c Release -r ${{ matrix.rid }} \
+            -p:Version="${VERSION#v}" -o out
+
+      - name: Package
+        run: |
+          # Single-file publish settings live in the csproj, so this must be exactly one file.
+          # Checked before the script is copied in, or it would always pass.
+          test "$(find out -type f | wc -l)" -eq 1 || { echo "expected one file:"; ls -la out; exit 1; }
+          # The mpv script rides along for people who place it by hand, typically into a portable
+          # mpv's portable_config. The install verb writes these same bytes from its embedded copy.
+          cp scripts/jiten-mpv.lua out/
+          mkdir -p dist
+          if [ "${{ matrix.rid }}" = "win-x64" ]; then
+            ARCHIVE=jiten-mpv-${{ matrix.rid }}.zip
+            (cd out && zip -9 ../dist/"$ARCHIVE" JitenMPV.App.exe jiten-mpv.lua)
+          else
+            ARCHIVE=jiten-mpv-${{ matrix.rid }}.tar.gz
+            # tar on a Unix runner so the execute bit survives; a cross-published binary is 644.
+            chmod +x out/JitenMPV.App
+            tar -C out -czf dist/"$ARCHIVE" JitenMPV.App jiten-mpv.lua
+          fi
+          # Naming the archive explicitly: a `*` glob would checksum the file being written.
+          (cd dist && sha256sum "$ARCHIVE" > "$ARCHIVE.sha256")
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: jiten-mpv-${{ matrix.rid }}
+          path: dist/*
+
+  # macOS needs its own runner only for codesign: an unsigned single-file binary produced elsewhere
+  # is SIGKILLed on Apple Silicon. Ad-hoc signing is free and needs no Apple account.
+  build-mac:
+    runs-on: macos-latest
+    strategy:
+      matrix:
+        rid: [osx-x64, osx-arm64]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          # Both, so this keeps working across the net9.0 to net10.0 retarget.
+          dotnet-version: |
+            9.0.x
+            10.0.x
+
+      - name: Resolve version
+        id: version
+        run: echo "value=${{ github.event.inputs.version || github.ref_name }}" >> "$GITHUB_OUTPUT"
+
+      - name: Publish
+        run: |
+          VERSION="${{ steps.version.outputs.value }}"
+          dotnet publish src/JitenMPV.App -c Release -r ${{ matrix.rid }} \
+            -p:Version="${VERSION#v}" -o out
+
+      - name: Sign and package
+        run: |
+          test "$(find out -type f | wc -l)" -eq 1 || { echo "expected one file:"; ls -la out; exit 1; }
+          codesign --force --sign - out/JitenMPV.App
+          codesign --verify --verbose out/JitenMPV.App
+          chmod +x out/JitenMPV.App
+          cp scripts/jiten-mpv.lua out/
+          mkdir -p dist
+          ARCHIVE=jiten-mpv-${{ matrix.rid }}.tar.gz
+          tar -C out -czf dist/"$ARCHIVE" JitenMPV.App jiten-mpv.lua
+          (cd dist && shasum -a 256 "$ARCHIVE" > "$ARCHIVE.sha256")
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: jiten-mpv-${{ matrix.rid }}
+          path: dist/*
+
+  # Repackages the win-x64 build rather than publishing again, so the executable inside the
+  # installer is byte-identical to the one in the zip.
+  installer-windows:
+    runs-on: windows-latest
+    needs: build
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: jiten-mpv-win-x64
+          path: artifact
+
+      - name: Resolve version
+        id: version
+        shell: bash
+        run: echo "value=${{ github.event.inputs.version || github.ref_name }}" >> "$GITHUB_OUTPUT"
+
+      - name: Unpack the published executable
+        shell: pwsh
+        run: Expand-Archive artifact/jiten-mpv-win-x64.zip -DestinationPath publish
+
+      # Inno Setup was dropped from the windows-2025 image and the request to restore it was closed
+      # as not planned, so it has to be installed per run.
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup -y --no-progress
+
+      - name: Build installer
+        shell: pwsh
+        run: |
+          $version = "${{ steps.version.outputs.value }}" -replace '^v', ''
+          # Absolute paths: Inno resolves relative ones against the .iss file's own directory.
+          iscc "/DAppVersion=$version" "/DSourceExe=$PWD\publish\JitenMPV.App.exe" `
+               "/DOutputDir=$PWD\dist" installers\jiten-mpv.iss
+          if ($LASTEXITCODE -ne 0) { throw "iscc failed with $LASTEXITCODE" }
+          (Get-FileHash dist\JitenMPV-Setup.exe -Algorithm SHA256).Hash.ToLower() +
+            "  JitenMPV-Setup.exe" | Set-Content dist\JitenMPV-Setup.exe.sha256 -NoNewline
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: jiten-mpv-setup
+          path: dist/*
+
+  # Tag pushes publish; a manual run only proves the builds work, leaving the artifacts to
+  # download rather than creating a release with no tag behind it.
+  release:
+    needs: [build, build-mac, installer-windows]
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true

@@ -98,8 +98,55 @@
 
       <!-- Inset lives on the content, not on the ScrollViewer: ScrollViewer.Padding shrinks the
            viewport without growing the extent, leaving the last 32px permanently unreachable. -->
-      <ScrollViewer Grid.Column="1" x:Name="ContentScroll">
+      <Grid Grid.Column="1" RowDefinitions="Auto,Auto,*">
+
+        <Border Grid.Row="0" IsVisible="{Binding IsUpdateBannerVisible}"
+                Background="#1c1917" BorderBrush="#60a5fa" BorderThickness="1"
+                CornerRadius="6" Padding="12" Margin="24,16,24,0">
+          <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="12">
+            <StackPanel Spacing="4">
+              <TextBlock Text="{Binding UpdateBannerText}" FontSize="12" Foreground="#fafafa"
+                         TextWrapping="Wrap"
+                         IsVisible="{Binding UpdateBannerText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+              <TextBlock Text="{Binding UpdateStatus}" FontSize="12"
+                         Foreground="{Binding UpdateStatusColor, Converter={StaticResource StringToBrush}}"
+                         TextWrapping="Wrap"
+                         IsVisible="{Binding UpdateStatus, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+              <StackPanel Spacing="2" IsVisible="{Binding IsUpdating}">
+                <ProgressBar Minimum="0" Maximum="100" Value="{Binding UpdatePercent}" Height="4" />
+                <TextBlock Text="{Binding UpdateStage}" FontSize="11" Foreground="#a1a1aa" />
+              </StackPanel>
+            </StackPanel>
+            <Button Grid.Column="1" Content="Release notes" Classes="secondary" VerticalAlignment="Center"
+                    IsVisible="{Binding CanInstallUpdate}"
+                    Command="{Binding OpenReleaseNotesCommand}" />
+            <Button Grid.Column="2" Content="Install update" Classes="accent" VerticalAlignment="Center"
+                    IsVisible="{Binding CanInstallUpdate}"
+                    Command="{Binding InstallUpdateCommand}" />
+          </Grid>
+        </Border>
+
+        <Border Grid.Row="1" IsVisible="{Binding IsInstallBannerVisible}"
+                Background="#1c1917" BorderBrush="#c084fc" BorderThickness="1"
+                CornerRadius="6" Padding="12" Margin="24,16,24,0">
+          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+            <StackPanel Spacing="2">
+              <TextBlock Text="{Binding InstallBannerText}" FontSize="12" Foreground="#fafafa"
+                         TextWrapping="Wrap" IsVisible="{Binding ShowInstallBanner}" />
+              <TextBlock Text="{Binding InstallStatus}" FontSize="12"
+                         Foreground="{Binding InstallStatusColor, Converter={StaticResource StringToBrush}}"
+                         TextWrapping="Wrap"
+                         IsVisible="{Binding InstallStatus, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+            </StackPanel>
+            <Button Grid.Column="1" Content="Install" Classes="accent" VerticalAlignment="Center"
+                    IsVisible="{Binding ShowInstallBanner}"
+                    Command="{Binding InstallForMpvCommand}" />
+          </Grid>
+        </Border>
+
+      <ScrollViewer Grid.Row="2" x:Name="ContentScroll">
         <Panel Margin="24,16">
+
 
           <!-- ═══════ GENERAL TAB ═══════ -->
           <StackPanel IsVisible="{Binding SelectedTabIndex, Converter={StaticResource ParseEquals}, ConverterParameter=0}"
@@ -127,6 +174,69 @@
               <TextBlock Text="Get your API key from jiten.moe/settings"
                          FontSize="11" Foreground="#71717a" />
             </StackPanel>
+
+            <Border Classes="divider" />
+
+            <Border Background="#0a0a0a" BorderBrush="#27272a" BorderThickness="1"
+                    CornerRadius="6" Padding="14">
+              <StackPanel Spacing="10">
+                <Grid ColumnDefinitions="Auto,Auto,*">
+                  <TextBlock Text="ffmpeg" Foreground="#fafafa" FontSize="14" FontWeight="Medium"
+                             VerticalAlignment="Center" />
+                  <Border Grid.Column="1" Margin="8,0,0,0" Padding="6,2" CornerRadius="4"
+                          Background="#3f1d2e" IsVisible="{Binding ShowFfmpegSetup}">
+                    <TextBlock Text="REQUIRED" FontSize="9" FontWeight="Bold" Foreground="#fca5a5" />
+                  </Border>
+                </Grid>
+
+                <TextBlock Text="{Binding FfmpegStatus}" FontSize="12" TextWrapping="Wrap"
+                           Foreground="{Binding FfmpegStatusColor, Converter={StaticResource StringToBrush}}"
+                           IsVisible="{Binding FfmpegStatus, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+
+                <TextBlock Text="Mining audio and clips, and burning subtitles into screenshots, all run through ffmpeg. Subtitle colouring and plain screenshots work without it."
+                           FontSize="11" Foreground="#71717a" TextWrapping="Wrap"
+                           IsVisible="{Binding ShowFfmpegSetup}" />
+
+                <Button Content="{Binding FfmpegDownloadLabel}"
+                        Classes="accent"
+                        HorizontalAlignment="Stretch"
+                        HorizontalContentAlignment="Center"
+                        Height="38" FontSize="14"
+                        Command="{Binding InstallFfmpegCommand}"
+                        IsVisible="{Binding CanDownloadFfmpeg}" />
+
+                <StackPanel Spacing="4" IsVisible="{Binding IsInstallingFfmpeg}">
+                  <ProgressBar Value="{Binding FfmpegInstallPercent}" Minimum="0" Maximum="100" Height="6" />
+                  <TextBlock Text="{Binding FfmpegInstallStage}" FontSize="11" Foreground="#a1a1aa" />
+                </StackPanel>
+
+                <StackPanel Spacing="4" IsVisible="{Binding ShowFfmpegManual}">
+                  <TextBlock Text="{Binding FfmpegManualHint}" FontSize="11" Foreground="#71717a" />
+                  <TextBox Text="{Binding FfmpegManualCommand, Mode=OneWay}"
+                           IsReadOnly="True" FontFamily="Consolas,monospace" FontSize="12"
+                           Background="#18181b" BorderThickness="0" Padding="8,6" />
+                </StackPanel>
+
+                <TextBlock IsVisible="{Binding ShowFfmpegAttribution}"
+                           FontSize="10" Foreground="#52525b" TextWrapping="Wrap"
+                           Text="ffmpeg is a separate program licensed under the LGPL, downloaded from BtbN/FFmpeg-Builds. See ffmpeg.org/legal.html and the SOURCE.txt beside the installed copy." />
+
+                <Expander Header="Use a specific ffmpeg" Padding="0" HorizontalAlignment="Stretch">
+                  <StackPanel Spacing="6" Margin="0,8,0,0">
+                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                      <TextBox Text="{Binding FfmpegPath}"
+                               PlaceholderText="Leave blank to find it automatically" />
+                      <Button Grid.Column="1" Content="Check" Classes="secondary"
+                              Command="{Binding DetectFfmpegCommand}" />
+                    </Grid>
+                    <TextBlock Text="Point this at an ffmpeg executable if you keep one somewhere unusual."
+                               FontSize="11" Foreground="#71717a" TextWrapping="Wrap" />
+                    <CheckBox Content="Stop reminding me in mpv"
+                              IsChecked="{Binding FfmpegPromptDismissed}" />
+                  </StackPanel>
+                </Expander>
+              </StackPanel>
+            </Border>
 
             <Border Classes="divider" />
 
@@ -737,15 +847,11 @@
                   <Border Classes="divider" />
 
                   <TextBlock Text="FFMPEG" Classes="section-header" />
-                  <TextBlock Text="Screenshots work without it, but clips and audio need it."
-                             FontSize="11" Foreground="#71717a" TextWrapping="Wrap" />
-                  <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
-                    <TextBox Text="{Binding FfmpegPath}" PlaceholderText="Leave blank to find it automatically" />
-                    <Button Grid.Column="1" Content="Check" Classes="secondary"
-                            Command="{Binding DetectFfmpegCommand}" />
-                  </Grid>
-                  <TextBlock Text="{Binding FfmpegStatus}" FontSize="11" Foreground="#71717a"
+                  <TextBlock Text="{Binding FfmpegStatus}" FontSize="11" TextWrapping="Wrap"
+                             Foreground="{Binding FfmpegStatusColor, Converter={StaticResource StringToBrush}}"
                              IsVisible="{Binding FfmpegStatus, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                  <TextBlock Text="Set it up on the General tab."
+                             FontSize="11" Foreground="#71717a" TextWrapping="Wrap" />
                 </StackPanel>
               </Expander>
             </StackPanel>
@@ -1011,6 +1117,31 @@
                       Spacing="16">
             <TextBlock Text="Advanced" FontSize="20" FontWeight="Bold" Foreground="#ffffff" />
 
+            <StackPanel Spacing="8">
+              <TextBlock Text="STARTUP" Classes="section-header" />
+              <CheckBox Content="Start automatically when a file is opened"
+                        IsChecked="{Binding PluginAutostart}" />
+              <TextBlock Text="Turn this off to keep subtitles untouched until you ask for them. The key below starts JitenMPV either way, and also restarts it if it stops."
+                         FontSize="11" Foreground="#71717a" TextWrapping="Wrap" />
+              <StackPanel Orientation="Horizontal" Spacing="8">
+                <TextBlock Text="Start key" Classes="field-label" />
+                <TextBox Text="{Binding PluginStartKey}" Width="120" PlaceholderText="F10" />
+              </StackPanel>
+              <TextBlock Text="An mpv key name, such as F10, Ctrl+j or ALT+s. Takes effect when mpv restarts."
+                         FontSize="11" Foreground="#71717a" TextWrapping="Wrap" />
+            </StackPanel>
+
+            <Border Classes="divider" />
+
+            <StackPanel Spacing="8">
+              <TextBlock Text="UPDATES" Classes="section-header" />
+              <CheckBox Content="Check for new versions" IsChecked="{Binding UpdateCheckEnabled}" />
+              <TextBlock Text="Asks GitHub once a day whether a newer release exists. Nothing is downloaded until you press Install update."
+                         FontSize="11" Foreground="#71717a" TextWrapping="Wrap" />
+            </StackPanel>
+
+            <Border Classes="divider" />
+
             <StackPanel Spacing="4">
               <TextBlock Text="Parse cache size" Foreground="#a1a1aa" FontSize="13" FontWeight="Medium" />
               <NumericUpDown Value="{Binding CacheSize}" Minimum="500" Maximum="10000" Increment="500" />
@@ -1059,23 +1190,30 @@
 
             <StackPanel Spacing="4">
               <TextBlock Text="Config file location" Foreground="#a1a1aa" FontSize="13" FontWeight="Medium" />
-              <TextBlock Text="%APPDATA%\jiten-mpv\config.json"
-                         FontSize="12" Foreground="#71717a" IsHitTestVisible="False" />
+              <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                <TextBlock Text="{Binding ConfigFilePath}" VerticalAlignment="Center"
+                           FontSize="12" Foreground="#71717a" TextWrapping="Wrap" IsHitTestVisible="False" />
+                <Button Grid.Column="1" Content="Open folder" Classes="secondary"
+                        Command="{Binding OpenConfigFolderCommand}" />
+              </Grid>
             </StackPanel>
           </StackPanel>
 
         </Panel>
       </ScrollViewer>
+      </Grid>
     </Grid>
 
     <Border Grid.Row="1" Background="#09090b" Padding="16,12" BorderBrush="#27272a" BorderThickness="0,1,0,0">
-      <Grid ColumnDefinitions="Auto,*,Auto,Auto">
+      <Grid ColumnDefinitions="Auto,Auto,*,Auto,Auto">
         <Button Content="Reset Section" Classes="secondary"
                 Command="{Binding ResetSectionCommand}" />
-        <Button Grid.Column="2" Content="Close" IsCancel="True"
+        <TextBlock Grid.Column="1" Text="{Binding VersionLabel}" Margin="12,0,0,0"
+                   VerticalAlignment="Center" FontSize="11" Foreground="#52525b" />
+        <Button Grid.Column="3" Content="Close" IsCancel="True"
                 Classes="secondary"
                 Click="OnClose" Margin="0,0,8,0" />
-        <Button Grid.Column="3" Content="Save"
+        <Button Grid.Column="4" Content="Save"
                 Click="OnSave" Classes="accent" />
       </Grid>
     </Border>

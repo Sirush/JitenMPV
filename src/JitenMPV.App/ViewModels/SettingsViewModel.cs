@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Diagnostics;
+using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -9,10 +11,12 @@ using CommunityToolkit.Mvvm.Input;
 using JitenMPV.Core.Api;
 using JitenMPV.Core.Api.Models;
 using JitenMPV.Core.Config;
+using JitenMPV.Core.Install;
 using JitenMPV.Core.Media;
 using JitenMPV.Core.Pitch;
 using JitenMPV.Core.Plus;
 using JitenMPV.Core.Theming;
+using JitenMPV.Core.Update;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace JitenMPV.App.ViewModels;
@@ -178,7 +182,182 @@ public partial class SettingsViewModel : ViewModelBase
     [NotifyPropertyChangedFor(nameof(SubtitleBurnWarning))]
     private string _ffmpegStatus = "";
 
-    [ObservableProperty] private bool _ffmpegAvailable;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(SubtitleBurnWarning))]
+    [NotifyPropertyChangedFor(nameof(FfmpegStatusColor))]
+    [NotifyPropertyChangedFor(nameof(ShowFfmpegSetup))]
+    [NotifyPropertyChangedFor(nameof(ShowFfmpegManual))]
+    [NotifyPropertyChangedFor(nameof(CanDownloadFfmpeg))]
+    private bool _ffmpegAvailable;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(FfmpegStatusColor))]
+    [NotifyPropertyChangedFor(nameof(ShowFfmpegSetup))]
+    [NotifyPropertyChangedFor(nameof(ShowFfmpegManual))]
+    [NotifyPropertyChangedFor(nameof(CanDownloadFfmpeg))]
+    private bool _ffmpegProbed;
+
+    /// Attribution belongs on the copy JitenMPV placed there, not on a system ffmpeg it merely found.
+    [ObservableProperty] private bool _showFfmpegAttribution;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanDownloadFfmpeg))]
+    private bool _isInstallingFfmpeg;
+
+    [ObservableProperty] private double _ffmpegInstallPercent;
+    [ObservableProperty] private string _ffmpegInstallStage = "";
+    [ObservableProperty] private bool _ffmpegPromptDismissed;
+
+    [ObservableProperty] private bool _pluginAutostart = true;
+    [ObservableProperty] private string _pluginStartKey = "F10";
+    [ObservableProperty] private bool _updateCheckEnabled = true;
+
+    public string ConfigFilePath => Path.Combine(AppPaths.ConfigDir, "config.json");
+
+    public string VersionLabel => $"v{Installer.CurrentVersion}";
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsInstallBannerVisible))]
+    private bool _showInstallBanner;
+
+    [ObservableProperty] private string _installBannerText = "";
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsInstallBannerVisible))]
+    private string _installStatus = "";
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(InstallStatusColor))]
+    private bool _installFailed;
+
+    public string InstallStatusColor => InstallFailed ? "#fca5a5" : "#86efac";
+
+    /// Outlives ShowInstallBanner on purpose: installing clears that flag, and a banner that simply
+    /// disappears is the one moment the user most needs to be told what happened.
+    public bool IsInstallBannerVisible => ShowInstallBanner || InstallStatus.Length > 0;
+
+    /// Running from somewhere mpv cannot spawn, or with no script in mpv's scripts directory, means
+    /// the plugin will never start. Offering the fix beats leaving the user to discover the silence.
+    private void RefreshInstallState()
+    {
+        var config = MpvConfigLocator.Resolve();
+        ShowInstallBanner = !Installer.IsInstalled();
+        InstallBannerText = $"JitenMPV is not installed for mpv. Script goes to {config.ScriptsDir}";
+    }
+
+    [RelayCommand]
+    private void InstallForMpv()
+    {
+        var result = Installer.Install(new InstallOptions());
+        InstallStatus = result.Success
+            ? "Installed. Restart mpv to load the plugin."
+            : $"Install failed: {result.Error}";
+        if (result.Warning is { } warning) InstallStatus += $"\n{warning}";
+        InstallFailed = !result.Success;
+        RefreshInstallState();
+    }
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsUpdateBannerVisible))]
+    [NotifyPropertyChangedFor(nameof(UpdateBannerText))]
+    [NotifyPropertyChangedFor(nameof(CanInstallUpdate))]
+    private UpdateInfo? _availableUpdate;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsUpdateBannerVisible))]
+    private string _updateStatus = "";
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(UpdateStatusColor))]
+    private bool _updateFailed;
+
+    public string UpdateStatusColor => UpdateFailed ? "#fca5a5" : "#86efac";
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanInstallUpdate))]
+    private bool _isUpdating;
+
+    [ObservableProperty] private double _updatePercent;
+    [ObservableProperty] private string _updateStage = "";
+
+    /// Survives a finished update for the same reason the install banner does: the outcome is
+    /// what the user came to the banner for.
+    public bool IsUpdateBannerVisible => AvailableUpdate is not null || UpdateStatus.Length > 0;
+
+    public string UpdateBannerText => AvailableUpdate is { } update
+        ? $"JitenMPV {update.Version} is available. You have {Installer.CurrentVersion}."
+        : "";
+
+    public bool CanInstallUpdate => AvailableUpdate is not null && !IsUpdating && SelfUpdater.IsSupported;
+
+    private async Task CheckForUpdateAsync()
+        => AvailableUpdate = await UpdateChecker.CheckAsync(UpdateCheckEnabled, CancellationToken.None);
+
+    [RelayCommand]
+    private async Task InstallUpdateAsync()
+    {
+        if (AvailableUpdate is not { } update || IsUpdating) return;
+
+        IsUpdating = true;
+        UpdatePercent = 0;
+        UpdateStage = "Starting";
+
+        var progress = new Progress<UpdateProgress>(p =>
+        {
+            UpdateStage = p.Stage;
+            if (p.Fraction is { } fraction) UpdatePercent = fraction * 100;
+        });
+
+        try
+        {
+            var result = await SelfUpdater.UpdateAsync(update, progress, CancellationToken.None);
+            UpdateStatus = result.Message;
+            UpdateFailed = !result.Success;
+            if (result.Success) AvailableUpdate = null;
+        }
+        finally
+        {
+            IsUpdating = false;
+        }
+    }
+
+    [RelayCommand]
+    private void OpenReleaseNotes()
+    {
+        try
+        {
+            Process.Start(new ProcessStartInfo(AvailableUpdate?.ReleaseNotesUrl ?? UpdateChecker.ReleasesUrl)
+            {
+                UseShellExecute = true
+            });
+        }
+        catch (Exception ex) when (ex is IOException or System.ComponentModel.Win32Exception)
+        {
+            // No browser registered; the version is already on screen to look up by hand.
+        }
+    }
+
+    public string FfmpegStatusColor => !FfmpegProbed ? "#a1a1aa"
+        : FfmpegAvailable ? "#86efac"
+        : "#fca5a5";
+
+    /// The setup block earns its place on the first screen only while ffmpeg is missing; once it
+    /// works, the General tab is back to being about the API key.
+    public bool ShowFfmpegSetup => FfmpegProbed && !FfmpegAvailable;
+
+    public bool CanDownloadFfmpeg => ShowFfmpegSetup && !IsInstallingFfmpeg && FfmpegInstaller.IsSupported;
+
+    public string FfmpegDownloadLabel => $"Download ffmpeg (about {FfmpegDownloadSizeMb} MB)";
+
+    /// Measured against the BtbN win64 LGPL asset, 2026-07-27. Only ffmpeg itself is kept, so the
+    /// installed footprint is far smaller than the download.
+    private const int FfmpegDownloadSizeMb = 140;
+
+    public string FfmpegManualCommand => FfmpegSetupHelp.ManualCommand;
+
+    public string FfmpegManualHint => FfmpegSetupHelp.Hint;
+
+    public bool ShowFfmpegManual => ShowFfmpegSetup && FfmpegManualCommand.Length > 0;
 
     public ObservableCollection<MediaOverwritePrompt> OverwritePrompts { get; } =
     [
@@ -372,6 +551,9 @@ public partial class SettingsViewModel : ViewModelBase
         }
         ReviewsEnabled = s.ReviewsEnabled;
         CacheSize = s.CacheSize;
+        PluginAutostart = s.PluginAutostart;
+        PluginStartKey = s.PluginStartKey;
+        UpdateCheckEnabled = s.UpdateCheckEnabled;
         PreparseEnabled = s.PreparseEnabled;
         PreparseBatchSize = s.PreparseBatchSize;
         StatusOverlayEnabled = s.StatusOverlayEnabled;
@@ -404,6 +586,12 @@ public partial class SettingsViewModel : ViewModelBase
         _previousTheme = s.Theme == "Custom" ? "Default" : s.Theme;
         if (s.Theme == "Custom" && s.CustomThemeColors is { Count: > 0 } custom)
             InitCustomStylesFromSettings(custom);
+
+        // The General tab is the landing tab and leads with ffmpeg's state, so the probe cannot
+        // wait for the user to visit a tab or press a button.
+        _ = DetectFfmpegAsync();
+        _ = CheckForUpdateAsync();
+        RefreshInstallState();
     }
 
     private void ApplyMediaSettings(PluginSettings s)
@@ -433,6 +621,7 @@ public partial class SettingsViewModel : ViewModelBase
         MediaAudioWindowMarginSeconds = s.MediaAudioWindowMarginSeconds;
         MediaSentenceContextLines = s.MediaSentenceContextLines;
         FfmpegPath = s.FfmpegPath;
+        FfmpegPromptDismissed = s.FfmpegPromptDismissed;
     }
 
     private void ApplyJitenPlusSnapshot(JitenPlusSnapshot snapshot)
@@ -550,6 +739,9 @@ public partial class SettingsViewModel : ViewModelBase
             DoubleClickAction = DoubleClickAction,
             ReviewsEnabled = ReviewsEnabled,
             CacheSize = CacheSize,
+            PluginAutostart = PluginAutostart,
+            PluginStartKey = string.IsNullOrWhiteSpace(PluginStartKey) ? "F10" : PluginStartKey.Trim(),
+            UpdateCheckEnabled = UpdateCheckEnabled,
             PreparseEnabled = PreparseEnabled,
             PreparseBatchSize = PreparseBatchSize,
             StatusOverlayEnabled = StatusOverlayEnabled,
@@ -585,6 +777,7 @@ public partial class SettingsViewModel : ViewModelBase
             MediaAudioWindowMarginSeconds = MediaAudioWindowMarginSeconds,
             MediaSentenceContextLines = MediaSentenceContextLines,
             FfmpegPath = FfmpegPath,
+            FfmpegPromptDismissed = FfmpegPromptDismissed,
             CustomThemeColors = SelectedTheme == "Custom" && CustomStateStyles.Count > 0
                 ? CustomStateStyles.ToDictionary(s => s.State.ToString(), s => s.ToCustomStateStyle())
                 : null,
@@ -746,12 +939,50 @@ public partial class SettingsViewModel : ViewModelBase
         }
     }
 
-    /// Probes on first visit to the Media tab, so the burn-in warning is accurate before the user
-    /// has to guess that a Detect button exists.
-    partial void OnSelectedTabIndexChanged(int value)
+    /// Reveals config.json rather than just opening the folder, since the point of the button is to
+    /// get at that one file. Falls back to the folder before the first save creates it.
+    [RelayCommand]
+    private void OpenConfigFolder()
     {
-        if (value == MediaTabIndex && FfmpegStatus.Length == 0)
-            DetectFfmpegCommand.Execute(null);
+        try
+        {
+            Directory.CreateDirectory(AppPaths.ConfigDir);
+            var reveal = File.Exists(ConfigFilePath);
+
+            if (OperatingSystem.IsWindows())
+            {
+                // explorer parses its own command line: the path must be quoted inside the
+                // /select, token, not as a whole quoted argument, or a path containing a space
+                // silently opens Documents instead of selecting the file.
+                Process.Start(new ProcessStartInfo("explorer.exe",
+                    reveal ? $"/select,\"{ConfigFilePath}\"" : $"\"{AppPaths.ConfigDir}\"")
+                {
+                    UseShellExecute = false
+                });
+                return;
+            }
+
+            var psi = new ProcessStartInfo { UseShellExecute = false };
+
+            if (OperatingSystem.IsMacOS())
+            {
+                psi.FileName = "open";
+                if (reveal) psi.ArgumentList.Add("-R");
+                psi.ArgumentList.Add(reveal ? ConfigFilePath : AppPaths.ConfigDir);
+            }
+            else
+            {
+                psi.FileName = "xdg-open";
+                psi.ArgumentList.Add(AppPaths.ConfigDir);
+            }
+
+            Process.Start(psi);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
+                                       or System.ComponentModel.Win32Exception)
+        {
+            // No file manager, or none registered for directories; nothing actionable to offer.
+        }
     }
 
     [RelayCommand]
@@ -760,9 +991,48 @@ public partial class SettingsViewModel : ViewModelBase
         FfmpegLocator.Invalidate();
         var resolved = await FfmpegLocator.ResolveAsync(FfmpegPath, CancellationToken.None);
         FfmpegAvailable = resolved is not null;
+        FfmpegProbed = true;
+        ShowFfmpegAttribution = resolved?.Source == FfmpegSource.Managed;
         FfmpegStatus = resolved is null
-            ? "ffmpeg was not found"
-            : $"ffmpeg is ready ({FfmpegLocator.Version})";
+            ? "ffmpeg is missing, so audio and clips cannot be mined."
+            : $"ffmpeg {resolved.DisplayVersion} is ready ({resolved.SourceLabel}).";
+    }
+
+    [RelayCommand]
+    private async Task InstallFfmpegAsync()
+    {
+        if (IsInstallingFfmpeg) return;
+
+        IsInstallingFfmpeg = true;
+        FfmpegInstallPercent = 0;
+        FfmpegInstallStage = "Starting";
+
+        var progress = new Progress<FfmpegInstallProgress>(p =>
+        {
+            FfmpegInstallStage = p.Stage;
+            if (p.Fraction is { } fraction)
+                FfmpegInstallPercent = fraction * 100;
+        });
+
+        try
+        {
+            var result = await FfmpegInstaller.InstallAsync(progress, CancellationToken.None);
+
+            if (result.Success)
+            {
+                await DetectFfmpegAsync();
+            }
+            else
+            {
+                FfmpegAvailable = false;
+                FfmpegProbed = true;
+                FfmpegStatus = result.Message;
+            }
+        }
+        finally
+        {
+            IsInstallingFfmpeg = false;
+        }
     }
 
     [RelayCommand]
@@ -942,6 +1212,9 @@ public partial class SettingsViewModel : ViewModelBase
                 break;
             case 6:
                 CacheSize = defaults.CacheSize;
+                PluginAutostart = defaults.PluginAutostart;
+                PluginStartKey = defaults.PluginStartKey;
+                UpdateCheckEnabled = defaults.UpdateCheckEnabled;
                 PreparseEnabled = defaults.PreparseEnabled;
                 PreparseBatchSize = defaults.PreparseBatchSize;
                 StatusOverlayEnabled = defaults.StatusOverlayEnabled;

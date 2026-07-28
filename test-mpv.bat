@@ -45,13 +45,15 @@ echo Plugin: %EXE%
 echo Log:    %LOG%
 echo.
 
-REM jiten_external stops the Lua script from spawning the installed copy from %%APPDATA%%,
-REM so mouse and keybind events go to the freshly built plugin started below.
-start "" mpv --input-ipc-server=%PIPE% --script="%ROOT%scripts\jiten-mpv.lua" --script-opts=jiten_external=1 "%~1"
-
-start "" "%EXE%" plugin %PIPE%
+REM JITEN_MPV_EXE redirects the Lua's spawn to the build above instead of the installed copy in
+REM %%APPDATA%%. Letting the script spawn it, rather than starting the plugin here, is what keeps
+REM plugin_autostart and plugin_start_key under test; starting it by hand connects over IPC
+REM regardless of either setting and makes them look broken.
+set "JITEN_MPV_EXE=%EXE%"
+start "" mpv --input-ipc-server=%PIPE% --script="%ROOT%scripts\jiten-mpv.lua" "%~1"
 
 echo Streaming plugin log. Close mpv or press Ctrl+C to stop.
+echo (autostart off? the log stays on the previous run until you press the start key.)
 echo.
 timeout /t 3 /nobreak >nul
 powershell -NoProfile -Command "Get-Content -LiteralPath '%LOG%' -Wait -Tail 60"

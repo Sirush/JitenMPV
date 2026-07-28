@@ -53,7 +53,7 @@ public sealed class PreParseService(
 
     private async Task<List<string>?> TryFfmpegExtract(MpvIpcClient ipc, CancellationToken ct)
     {
-        var ffmpeg = await FfmpegLocator.ResolveAsync(settings?.FfmpegPath, ct);
+        var ffmpeg = (await FfmpegLocator.ResolveAsync(settings?.FfmpegPath, ct))?.ExecutablePath;
         if (ffmpeg is null)
         {
             logger.LogInformation("ffmpeg not available, skipping embedded subtitle extraction");

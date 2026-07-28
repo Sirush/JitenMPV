@@ -96,7 +96,7 @@ public sealed class MediaCaptureCoordinator(
         if (!plus.Current.IsActive) return MediaCaptureResult.NotEntitled;
         if (!s.MediaCaptureImage && !s.MediaCaptureAudio) return MediaCaptureResult.Disabled;
 
-        var ffmpegPath = await FfmpegLocator.ResolveAsync(s.FfmpegPath, ct);
+        var ffmpegPath = (await FfmpegLocator.ResolveAsync(s.FfmpegPath, ct))?.ExecutablePath;
 
         // Without ffmpeg the mpv screenshot still works and uploads as PNG for the server to
         // normalize; audio, animation and burn-in are the parts that genuinely cannot run.
