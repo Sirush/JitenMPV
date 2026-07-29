@@ -26,6 +26,7 @@ public sealed class PluginHost(
     internal const int SubtitleOverlayId = 1;
     internal const int PitchUnderlineOverlayId = 2;
     internal const string OpenSettingsMessage = "jiten-open-settings";
+    internal const string ToggleSubtitlesMessage = "jiten-toggle-subtitles";
     private const string LuaScriptName = "jiten_mpv";
 
     /// mpv reports the new track before it has finished loading it, and a file change fires several
@@ -53,6 +54,8 @@ public sealed class PluginHost(
     private volatile JitenPlusService? _plusService;
     private volatile MediaCaptureCoordinator? _mediaCapture;
     private volatile bool _wasPausedBeforeSettings;
+    private volatile bool _subtitlesVisible = true;
+    private readonly SemaphoreSlim _subtitleVisibilityLock = new(1, 1);
     private volatile string? _currentSubtitleText;
 
     /// The line as mpv gave it, kept so the joined form can be recomputed when a setting that
@@ -136,7 +139,7 @@ public sealed class PluginHost(
             _ = RunSafe(() => SendNavKeysAsync(ipc, newSettings, CancellationToken.None));
 
             var raw = _currentSubtitleRaw;
-            if (!string.IsNullOrWhiteSpace(raw))
+            if (_subtitlesVisible && !string.IsNullOrWhiteSpace(raw))
             {
                 var colorizer = _colorizer;
                 var measurer = _measurer;
@@ -154,13 +157,13 @@ public sealed class PluginHost(
 
                     // A subtitle change during the round trip means this overlay and layout are
                     // stale; writing them would clobber the newer line's rendering and hit-test rects.
-                    if (_currentSubtitleText != text) return;
+                    if (!_subtitlesVisible || _currentSubtitleText != text) return;
                     await ipc.ShowOverlayAsync(SubtitleOverlayId, ass, CancellationToken.None);
 
                     if (entry is not null && measurer is not null && interaction is not null)
                     {
                         var layout = await measurer.MeasureAsync(text, entry, ipc, CancellationToken.None);
-                        if (_currentSubtitleText != text) return;
+                        if (!_subtitlesVisible || _currentSubtitleText != text) return;
                         interaction.UpdateLayout(layout);
                         await RenderPitchUnderlinesAsync(entry, layout, ipc, CancellationToken.None);
                     }
@@ -335,12 +338,8 @@ public sealed class PluginHost(
 
             ipcClient.SubtitleTextChanged += text =>
             {
-                TaskHelper.CancelAndDispose(ref _currentSubtitleCts);
-                var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-                _currentSubtitleCts = linkedCts;
-                _ = OnSubtitleChangedAsync(text, ipcClient, colorizer,
-                    measurer, interaction, lineJoiner, linkedCts.Token)
-                    .ContinueWith(_ => linkedCts.Dispose(), TaskScheduler.Default);
+                QueueSubtitleRender(text, ipcClient, colorizer,
+                    measurer, interaction, lineJoiner, ct);
             };
 
             ipcClient.MouseEvent += e =>
@@ -376,6 +375,10 @@ public sealed class PluginHost(
                 {
                     logger.LogInformation("Received {Message}", OpenSettingsMessage);
                     OpenSettingsRequested?.Invoke();
+                }
+                else if (name == ToggleSubtitlesMessage)
+                {
+                    _ = RunSafe(() => ToggleSubtitlesAsync(ipcClient, ct));
                 }
                 else if (name == "jiten-keybind-action" && args.Length >= 1)
                 {
@@ -462,6 +465,8 @@ public sealed class PluginHost(
                 var cct = cleanupCts.Token;
                 await ipcClient.RemoveOverlayAsync(SubtitleOverlayId, cct);
                 await ipcClient.RemoveOverlayAsync(StatusOverlay.StatusLayerId, cct);
+                await ipcClient.SendScriptMessageAsync(
+                    LuaScriptName, "jiten-set-client", "", cct);
                 await ipcClient.SetPropertyAsync("sub-visibility", "yes", cct);
             }
             catch { }
@@ -519,6 +524,45 @@ public sealed class PluginHost(
             "next_sub", settings.KeybindNextSub, ct);
         await ipc.SendScriptMessageAsync(LuaScriptName, "jiten-set-nav-key",
             "loop_sub", settings.KeybindLoopSub, ct);
+    }
+
+    private async Task ToggleSubtitlesAsync(MpvIpcClient ipc, CancellationToken ct)
+    {
+        await _subtitleVisibilityLock.WaitAsync(ct);
+        try
+        {
+            var visible = !_subtitlesVisible;
+            _subtitlesVisible = visible;
+            await ipc.SetPropertyAsync("sub-visibility", false, ct);
+
+            if (visible)
+            {
+                if (_colorizer is { } colorizer
+                    && _measurer is { } measurer
+                    && _interactionHandler is { } interaction
+                    && _lineJoiner is { } joiner)
+                {
+                    QueueSubtitleRender(_currentSubtitleRaw, ipc, colorizer,
+                        measurer, interaction, joiner, ct);
+                }
+            }
+            else
+            {
+                TaskHelper.CancelAndDispose(ref _currentSubtitleCts);
+                if (_interactionHandler is { } interaction)
+                    await interaction.OnSubtitleRenderedAsync(null, null, [], ct);
+                await ipc.RemoveOverlayAsync(SubtitleOverlayId, ct);
+                await ipc.RemoveOverlayAsync(PitchUnderlineOverlayId, ct);
+            }
+
+            await ipc.ShowTextAsync(
+                visible ? "JitenMPV subtitles visible" : "JitenMPV subtitles hidden",
+                1000, ct);
+        }
+        finally
+        {
+            _subtitleVisibilityLock.Release();
+        }
     }
 
     private Task RunSafe(Func<Task> action)
@@ -606,6 +650,24 @@ public sealed class PluginHost(
         return true;
     }
 
+    private void QueueSubtitleRender(
+        string? text, MpvIpcClient ipcClient,
+        SubtitleColorizer colorizer, SubtitleMeasurer measurer,
+        InteractionHandler interaction, SubtitleLineJoiner joiner,
+        CancellationToken lifetimeToken)
+    {
+        _currentSubtitleRaw = text;
+        _currentSubtitleText = text;
+        if (!_subtitlesVisible) return;
+
+        TaskHelper.CancelAndDispose(ref _currentSubtitleCts);
+        var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(lifetimeToken);
+        _currentSubtitleCts = linkedCts;
+        _ = OnSubtitleChangedAsync(text, ipcClient, colorizer,
+                measurer, interaction, joiner, linkedCts.Token)
+            .ContinueWith(_ => linkedCts.Dispose(), TaskScheduler.Default);
+    }
+
     private async Task OnSubtitleChangedAsync(
         string? text, MpvIpcClient ipcClient,
         SubtitleColorizer colorizer,
@@ -617,6 +679,7 @@ public sealed class PluginHost(
         {
             _currentSubtitleRaw = text;
             _currentSubtitleText = text;
+            if (!_subtitlesVisible) return;
 
             if (string.IsNullOrWhiteSpace(text))
             {
@@ -629,10 +692,11 @@ public sealed class PluginHost(
             var display = await joiner.ResolveAsync(text, ipcClient, ct);
 
             // The fit measurement is a round trip, so a newer line can already own these fields.
-            if (_currentSubtitleRaw != text) return;
+            if (!_subtitlesVisible || _currentSubtitleRaw != text) return;
             _currentSubtitleText = display;
 
             var (ass, entry) = await colorizer.ColorizeAsync(display, ct);
+            if (!_subtitlesVisible) return;
 
             var showTask = ipcClient.ShowOverlayAsync(SubtitleOverlayId, ass, ct);
             var measureTask = entry is not null
@@ -640,9 +704,11 @@ public sealed class PluginHost(
                 : Task.FromResult<List<WordRect>>([]);
 
             await Task.WhenAll(showTask, measureTask);
+            if (!_subtitlesVisible) return;
             var layout = measureTask.Result;
 
             await RenderPitchUnderlinesAsync(entry, layout, ipcClient, ct);
+            if (!_subtitlesVisible) return;
             await interaction.OnSubtitleRenderedAsync(display, entry, layout, ct);
         }
         catch (OperationCanceledException) { }

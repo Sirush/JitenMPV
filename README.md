@@ -98,6 +98,7 @@ If ffmpeg is missing, the same screen offers a one-click download. Without it, s
 
 - `Ctrl+J` opens settings
 - `F10` starts JitenMPV, or restarts it if it stopped
+- mpv's subtitle visibility key (`v` by default) hides or shows JitenMPV's coloured subtitles
 - Hover a word for its dictionary entry, click to interact
 
 JitenMPV starts automatically when a file is opened. Turn that off under Settings > Advanced if you would rather start it with `F10` only.
