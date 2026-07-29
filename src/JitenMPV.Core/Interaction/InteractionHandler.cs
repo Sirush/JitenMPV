@@ -186,7 +186,8 @@ public sealed class InteractionHandler : IDisposable
             _pendingWord = hit;
             _hoverPopupCts = new CancellationTokenSource();
             var linked = CancellationTokenSource.CreateLinkedTokenSource(_hoverPopupCts.Token, ct);
-            _ = ShowPopupAfterDelayAsync(hit, HoverDelayFor(hit), linked);
+            _ = ShowPopupAfterDelayAsync(
+                hit, new PopupPointerPosition(mx, my), HoverDelayFor(hit), linked);
         }
         else if (hit is null && !overPopup)
         {
@@ -250,7 +251,8 @@ public sealed class InteractionHandler : IDisposable
         _pendingWord = null;
     }
 
-    private async Task ShowPopupAfterDelayAsync(WordRect hit, int delayMs, CancellationTokenSource linkedCts)
+    private async Task ShowPopupAfterDelayAsync(
+        WordRect hit, PopupPointerPosition pointer, int delayMs, CancellationTokenSource linkedCts)
     {
         try
         {
@@ -262,7 +264,7 @@ public sealed class InteractionHandler : IDisposable
 
             if (_currentEntry is not null)
             {
-                await _popup.ShowAsync(hit, _currentEntry, linkedCts.Token);
+                await _popup.ShowAsync(hit, _currentEntry, pointer, linkedCts.Token);
                 _popupWord = hit;
             }
         }
@@ -303,7 +305,8 @@ public sealed class InteractionHandler : IDisposable
         {
             if (_settings.PopupTrigger != PopupTriggerMode.Hover)
             {
-                await _popup.ShowAsync(hit, entry, ct);
+                await _popup.ShowAsync(
+                    hit, entry, new PopupPointerPosition(mx, my), ct);
                 _popupWord = hit;
             }
             return;
