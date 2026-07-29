@@ -29,9 +29,6 @@ On a Wayland desktop, add this to `~/.config/mpv/mpv.conf` and restart mpv:
 gpu-context=x11egl
 ```
 
-This keeps mpv on XWayland. Subtitle colouring also works with native Wayland, but precise popup
-placement and fullscreen stacking need mpv's X11 window ID.
-
 ## Installation
 
 ### Windows
