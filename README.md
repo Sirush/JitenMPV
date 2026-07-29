@@ -26,7 +26,7 @@ Subtitles are parsed as they play, each word coloured by its state in your Jiten
 On a Wayland desktop, add this to `~/.config/mpv/mpv.conf` and restart mpv:
 
 ```ini
-gpu-context=x11egl
+gpu-context=x11vk,x11egl
 ```
 
 ## Installation
