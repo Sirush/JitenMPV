@@ -31,9 +31,13 @@ public sealed class PluginHost(
     /// mpv reports the new track before it has finished loading it, and a file change fires several
     /// of these at once; the reload waits this long so it reads a settled track-list exactly once.
     private static readonly TimeSpan SubtitleSourceSettleDelay = TimeSpan.FromMilliseconds(400);
+    /// mpv normally publishes width and height as separate events. Waiting briefly prevents
+    /// measuring the subtitle once against a half-old geometry and again against the final pair.
+    private static readonly TimeSpan OsdGeometrySettleDelay = TimeSpan.FromMilliseconds(50);
 
     private CancellationTokenSource? _currentSubtitleCts;
     private CancellationTokenSource? _preParseCts;
+    private int _subtitleRenderVersion;
     private volatile PluginSettings? _settings;
     private volatile StyleResolver? _styleResolver;
     private volatile OverlayRenderer? _renderer;
@@ -335,12 +339,10 @@ public sealed class PluginHost(
 
             ipcClient.SubtitleTextChanged += text =>
             {
-                TaskHelper.CancelAndDispose(ref _currentSubtitleCts);
-                var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-                _currentSubtitleCts = linkedCts;
-                _ = OnSubtitleChangedAsync(text, ipcClient, colorizer,
-                    measurer, interaction, lineJoiner, linkedCts.Token)
-                    .ContinueWith(_ => linkedCts.Dispose(), TaskScheduler.Default);
+                _currentSubtitleRaw = text;
+                _currentSubtitleText = text;
+                QueueSubtitleRender(text, ipcClient, colorizer,
+                    measurer, interaction, lineJoiner, ct);
             };
 
             ipcClient.MouseEvent += e =>
@@ -358,7 +360,11 @@ public sealed class PluginHost(
                     "osd-height" => osd.Update(osd.Width, value),
                     _ => false
                 };
-                if (changed) renderer.RebuildPreamble();
+                if (!changed) return;
+
+                renderer.RebuildPreamble();
+                QueueSubtitleRender(_currentSubtitleRaw, ipcClient, colorizer,
+                    measurer, interaction, lineJoiner, ct, OsdGeometrySettleDelay);
             };
 
             if (settings.PreparseEnabled)
@@ -468,6 +474,7 @@ public sealed class PluginHost(
 
             statusOverlay.Dispose();
             plusService.Dispose();
+            TaskHelper.CancelAndDispose(ref _currentSubtitleCts);
         }
     }
 
@@ -606,21 +613,45 @@ public sealed class PluginHost(
         return true;
     }
 
+    private void QueueSubtitleRender(
+        string? text, MpvIpcClient ipcClient,
+        SubtitleColorizer colorizer, SubtitleMeasurer measurer,
+        InteractionHandler interaction, SubtitleLineJoiner joiner,
+        CancellationToken lifetimeToken, TimeSpan settleDelay = default)
+    {
+        TaskHelper.CancelAndDispose(ref _currentSubtitleCts);
+        var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(lifetimeToken);
+        _currentSubtitleCts = linkedCts;
+        var version = Interlocked.Increment(ref _subtitleRenderVersion);
+
+        _ = TaskHelper.RunSafe(async () =>
+            {
+                if (settleDelay > TimeSpan.Zero)
+                    await Task.Delay(settleDelay, linkedCts.Token);
+                await OnSubtitleChangedAsync(text, ipcClient, colorizer,
+                    measurer, interaction, joiner, version, linkedCts.Token);
+            }, logger, "Render subtitle")
+            .ContinueWith(_ => linkedCts.Dispose(), TaskScheduler.Default);
+    }
+
     private async Task OnSubtitleChangedAsync(
         string? text, MpvIpcClient ipcClient,
         SubtitleColorizer colorizer,
         SubtitleMeasurer measurer, InteractionHandler interaction,
         SubtitleLineJoiner joiner,
+        int renderVersion,
         CancellationToken ct)
     {
         try
         {
-            _currentSubtitleRaw = text;
-            _currentSubtitleText = text;
+            if (renderVersion != Volatile.Read(ref _subtitleRenderVersion)
+                || _currentSubtitleRaw != text)
+                return;
 
             if (string.IsNullOrWhiteSpace(text))
             {
                 await interaction.OnSubtitleRenderedAsync(null, null, [], ct);
+                if (renderVersion != Volatile.Read(ref _subtitleRenderVersion)) return;
                 await ipcClient.RemoveOverlayAsync(SubtitleOverlayId, ct);
                 await ipcClient.RemoveOverlayAsync(PitchUnderlineOverlayId, ct);
                 return;
@@ -629,10 +660,13 @@ public sealed class PluginHost(
             var display = await joiner.ResolveAsync(text, ipcClient, ct);
 
             // The fit measurement is a round trip, so a newer line can already own these fields.
-            if (_currentSubtitleRaw != text) return;
+            if (renderVersion != Volatile.Read(ref _subtitleRenderVersion)
+                || _currentSubtitleRaw != text)
+                return;
             _currentSubtitleText = display;
 
             var (ass, entry) = await colorizer.ColorizeAsync(display, ct);
+            if (renderVersion != Volatile.Read(ref _subtitleRenderVersion)) return;
 
             var showTask = ipcClient.ShowOverlayAsync(SubtitleOverlayId, ass, ct);
             var measureTask = entry is not null
@@ -640,6 +674,7 @@ public sealed class PluginHost(
                 : Task.FromResult<List<WordRect>>([]);
 
             await Task.WhenAll(showTask, measureTask);
+            if (renderVersion != Volatile.Read(ref _subtitleRenderVersion)) return;
             var layout = measureTask.Result;
 
             await RenderPitchUnderlinesAsync(entry, layout, ipcClient, ct);
