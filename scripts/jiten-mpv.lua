@@ -484,14 +484,16 @@ local function refresh_subtitle_toggle_bindings()
         local key = binding.key
         local current = key and active_by_key[key] or nil
         -- Later entries win equal-priority ties, matching input.conf's last binding wins behavior.
-        if key and key ~= "" and priority >= 0
+        -- Script-owned bindings drop out before ranking: mpv unbinds only on the next idle tick, so
+        -- the binding cleared just above is still listed here and outranks the input.conf entry.
+        if key and key ~= "" and priority >= 0 and not binding.owner
            and (not current or priority >= (current.priority or 0)) then
             active_by_key[key] = binding
         end
     end
 
     for key, binding in pairs(active_by_key) do
-        if not binding.owner and toggles_sub_visibility(binding.cmd) then
+        if toggles_sub_visibility(binding.cmd) then
             local id = "jiten-subtitle-visibility-" .. tostring(#subtitle_toggle_binding_ids + 1)
             subtitle_toggle_binding_ids[#subtitle_toggle_binding_ids + 1] = id
             mp.add_forced_key_binding(key, id, function()

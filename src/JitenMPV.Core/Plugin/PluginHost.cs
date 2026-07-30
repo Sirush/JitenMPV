@@ -573,7 +573,8 @@ public sealed class PluginHost(
         {
             var visible = !_subtitlesVisible;
             _subtitlesVisible = visible;
-            await ipc.SetPropertyAsync("sub-visibility", false, ct);
+
+            await ipc.SetPropertyAsync("sub-visibility", "no", ct);
 
             if (visible)
             {
@@ -699,17 +700,24 @@ public sealed class PluginHost(
         string? text, MpvIpcClient ipcClient,
         SubtitleColorizer colorizer, SubtitleMeasurer measurer,
         InteractionHandler interaction, SubtitleLineJoiner joiner,
-        CancellationToken lifetimeToken)
+        CancellationToken lifetimeToken, TimeSpan settleDelay = default)
     {
-        _currentSubtitleRaw = text;
-        _currentSubtitleText = text;
         if (!_subtitlesVisible) return;
 
         TaskHelper.CancelAndDispose(ref _currentSubtitleCts);
         var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(lifetimeToken);
         _currentSubtitleCts = linkedCts;
-        _ = OnSubtitleChangedAsync(text, ipcClient, colorizer,
-                measurer, interaction, joiner, linkedCts.Token)
+        var version = Interlocked.Increment(ref _subtitleRenderVersion);
+
+        var token = linkedCts.Token;
+
+        _ = TaskHelper.RunSafe(async () =>
+            {
+                if (settleDelay > TimeSpan.Zero)
+                    await Task.Delay(settleDelay, token);
+                await OnSubtitleChangedAsync(text, ipcClient, colorizer,
+                    measurer, interaction, joiner, version, token);
+            }, logger, "Render subtitle")
             .ContinueWith(_ => linkedCts.Dispose(), TaskScheduler.Default);
     }
 
@@ -721,16 +729,19 @@ public sealed class PluginHost(
         int renderVersion,
         CancellationToken ct)
     {
+        // Cancellation is cooperative, so an already-dispatched overlay write can still land after a
+        // newer render or a hide has taken over. Checked again after every round trip.
+        bool Superseded() => renderVersion != Volatile.Read(ref _subtitleRenderVersion)
+                             || !_subtitlesVisible;
+
         try
         {
-            _currentSubtitleRaw = text;
-            _currentSubtitleText = text;
-            if (!_subtitlesVisible) return;
+            if (Superseded() || _currentSubtitleRaw != text) return;
 
             if (string.IsNullOrWhiteSpace(text))
             {
                 await interaction.OnSubtitleRenderedAsync(null, null, [], ct);
-                if (renderVersion != Volatile.Read(ref _subtitleRenderVersion)) return;
+                if (Superseded()) return;
                 await ipcClient.RemoveOverlayAsync(SubtitleOverlayId, ct);
                 await ipcClient.RemoveOverlayAsync(PitchUnderlineOverlayId, ct);
                 return;
@@ -739,11 +750,11 @@ public sealed class PluginHost(
             var display = await joiner.ResolveAsync(text, ipcClient, ct);
 
             // The fit measurement is a round trip, so a newer line can already own these fields.
-            if (!_subtitlesVisible || _currentSubtitleRaw != text) return;
+            if (Superseded() || _currentSubtitleRaw != text) return;
             _currentSubtitleText = display;
 
             var (ass, entry) = await colorizer.ColorizeAsync(display, ct);
-            if (!_subtitlesVisible) return;
+            if (Superseded()) return;
 
             var showTask = ipcClient.ShowOverlayAsync(SubtitleOverlayId, ass, ct);
             var measureTask = entry is not null
@@ -751,11 +762,11 @@ public sealed class PluginHost(
                 : Task.FromResult<List<WordRect>>([]);
 
             await Task.WhenAll(showTask, measureTask);
-            if (!_subtitlesVisible) return;
+            if (Superseded()) return;
             var layout = measureTask.Result;
 
             await RenderPitchUnderlinesAsync(entry, layout, ipcClient, ct);
-            if (!_subtitlesVisible) return;
+            if (Superseded()) return;
             await interaction.OnSubtitleRenderedAsync(display, entry, layout, ct);
         }
         catch (OperationCanceledException) { }

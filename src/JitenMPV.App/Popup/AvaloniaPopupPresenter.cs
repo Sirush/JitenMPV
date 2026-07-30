@@ -25,7 +25,7 @@ public sealed class AvaloniaPopupPresenter : IPopupPresenter
     private int _offsetPx = 60;
     private double _lastFontScale = -1;
     private int _lastMaxWidth = -1;
-    private PopupWindowContext _windowContext = PopupWindowContext.Empty;
+    private volatile PopupWindowContext _windowContext = PopupWindowContext.Empty;
     private bool _repositionQueued;
 
     public bool IsVisible => _isVisible;
@@ -67,8 +67,6 @@ public sealed class AvaloniaPopupPresenter : IPopupPresenter
 
             _isVisible = true;
             X11MpvWindowBridge.SetTransientOwner(_window, _windowContext.WindowId);
-            Dispatcher.UIThread.Post(
-                () => PositionWindow(_lastCursorPos), DispatcherPriority.Render);
             QueuePositionWindow();
         }).GetTask();
     }
