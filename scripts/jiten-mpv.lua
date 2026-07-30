@@ -456,6 +456,61 @@ function bar_refresh(relayout)
     bar_render()
 end
 
+-- JitenMPV draws subtitles in an OSD overlay and deliberately keeps sub-visibility off. Discover
+-- whichever active input.conf keys toggle that property instead of assuming mpv's default v key:
+-- a user who moved the command keeps their chosen key, and a repurposed v remains untouched.
+local subtitle_toggle_binding_ids = {}
+
+local function toggles_sub_visibility(command)
+    if type(command) ~= "string" then return false end
+    command = command:lower()
+    return command:find("cycle sub-visibility", 1, true) ~= nil
+        or command:find("cycle-values sub-visibility", 1, true) ~= nil
+end
+
+local function clear_subtitle_toggle_bindings()
+    for _, id in ipairs(subtitle_toggle_binding_ids) do mp.remove_key_binding(id) end
+    subtitle_toggle_binding_ids = {}
+end
+
+local function refresh_subtitle_toggle_bindings()
+    clear_subtitle_toggle_bindings()
+    if not bar.client then return end
+
+    local bindings = mp.get_property_native("input-bindings") or {}
+    local active_by_key = {}
+    for _, binding in ipairs(bindings) do
+        local priority = binding.priority or 0
+        local key = binding.key
+        local current = key and active_by_key[key] or nil
+        -- Later entries win equal-priority ties, matching input.conf's last binding wins behavior.
+        if key and key ~= "" and priority >= 0
+           and (not current or priority >= (current.priority or 0)) then
+            active_by_key[key] = binding
+        end
+    end
+
+    for key, binding in pairs(active_by_key) do
+        if not binding.owner and toggles_sub_visibility(binding.cmd) then
+            local id = "jiten-subtitle-visibility-" .. tostring(#subtitle_toggle_binding_ids + 1)
+            subtitle_toggle_binding_ids[#subtitle_toggle_binding_ids + 1] = id
+            mp.add_forced_key_binding(key, id, function()
+                if bar.client then
+                    mp.commandv("script-message-to", bar.client, "jiten-toggle-subtitles")
+                end
+            end)
+        end
+    end
+end
+
+local function set_plugin_client(name)
+    bar.client = (name ~= nil and name ~= "") and name or nil
+    local connected = bar.client ~= nil
+    set_nav_keys_bound(connected)
+    refresh_subtitle_toggle_bindings()
+    bar_refresh()
+end
+
 local function initialize()
     if plugin_started then return end
 
@@ -489,9 +544,7 @@ local function initialize()
         args = { exe, "plugin", ipc_path }
     }, function()
         plugin_started = false
-        bar.client = nil
-        set_nav_keys_bound(false)
-        bar_refresh()
+        set_plugin_client(nil)
         if sub_visibility_before_plugin then
             mp.set_property("sub-visibility", sub_visibility_before_plugin)
             sub_visibility_before_plugin = nil
@@ -633,6 +686,7 @@ end)
 
 -- A loop range from the previous file would trap playback in a stretch of this one.
 mp.register_event("file-loaded", function()
+    refresh_subtitle_toggle_bindings()
     if not loop.enabled then return end
     loop.enabled = false
     loop_clear()
@@ -652,9 +706,7 @@ mp.register_script_message("jiten-set-mouse-zone", function(pct)
 end)
 
 mp.register_script_message("jiten-set-client", function(name)
-    bar.client = (name ~= nil and name ~= "") and name or nil
-    set_nav_keys_bound(bar.client ~= nil)
-    bar_refresh()
+    set_plugin_client(name)
 end)
 
 mp.register_script_message("jiten-set-buttons", function(settings_value, nav_value)
