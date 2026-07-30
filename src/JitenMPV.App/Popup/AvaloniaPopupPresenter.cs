@@ -24,6 +24,7 @@ public sealed class AvaloniaPopupPresenter : IPopupPresenter
     private int _offsetPx = 60;
     private double _lastFontScale = -1;
     private int _lastMaxWidth = -1;
+    private bool _repositionQueued;
 
     public bool IsVisible => _isVisible;
 
@@ -53,8 +54,7 @@ public sealed class AvaloniaPopupPresenter : IPopupPresenter
                 _window.Show();
 
             _isVisible = true;
-
-            Dispatcher.UIThread.Post(() => PositionWindow(_lastCursorPos), DispatcherPriority.Render);
+            QueuePositionWindow();
         }).GetTask();
     }
 
@@ -93,6 +93,18 @@ public sealed class AvaloniaPopupPresenter : IPopupPresenter
 
         _window.PointerEntered += (_, _) => MouseEntered?.Invoke();
         _window.PointerExited += (_, _) => MouseLeft?.Invoke();
+        _window.SizeChanged += (_, _) => QueuePositionWindow();
+    }
+
+    private void QueuePositionWindow()
+    {
+        if (_repositionQueued) return;
+        _repositionQueued = true;
+        Dispatcher.UIThread.Post(() =>
+        {
+            _repositionQueued = false;
+            if (_isVisible) PositionWindow(_lastCursorPos);
+        }, DispatcherPriority.Render);
     }
 
     private void ApplyFontScale(double scale)
