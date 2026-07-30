@@ -26,6 +26,7 @@ public sealed class AvaloniaPopupPresenter : IPopupPresenter
     private double _lastFontScale = -1;
     private int _lastMaxWidth = -1;
     private PopupWindowContext _windowContext = PopupWindowContext.Empty;
+    private bool _repositionQueued;
 
     public bool IsVisible => _isVisible;
 
@@ -68,6 +69,7 @@ public sealed class AvaloniaPopupPresenter : IPopupPresenter
             X11MpvWindowBridge.SetTransientOwner(_window, _windowContext.WindowId);
             Dispatcher.UIThread.Post(
                 () => PositionWindow(_lastCursorPos), DispatcherPriority.Render);
+            QueuePositionWindow();
         }).GetTask();
     }
 
@@ -106,6 +108,18 @@ public sealed class AvaloniaPopupPresenter : IPopupPresenter
 
         _window.PointerEntered += (_, _) => MouseEntered?.Invoke();
         _window.PointerExited += (_, _) => MouseLeft?.Invoke();
+        _window.SizeChanged += (_, _) => QueuePositionWindow();
+    }
+
+    private void QueuePositionWindow()
+    {
+        if (_repositionQueued) return;
+        _repositionQueued = true;
+        Dispatcher.UIThread.Post(() =>
+        {
+            _repositionQueued = false;
+            if (_isVisible) PositionWindow(_lastCursorPos);
+        }, DispatcherPriority.Render);
     }
 
     private PixelPoint? ResolveCursorPosition(PopupPointerPosition pointer)
