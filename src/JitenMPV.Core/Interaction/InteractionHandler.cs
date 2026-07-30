@@ -80,7 +80,36 @@ public sealed class InteractionHandler : IDisposable
     private Task PassThroughAsync(string message, CancellationToken ct)
         => _ipc.SendScriptMessageAsync(LuaTarget, message, ct);
 
-    public void UpdateLayout(List<WordRect> layout) => _hitTest.UpdateLayout(layout);
+    public void UpdateLayout(List<WordRect> layout) => SetLayout(layout);
+
+    /// The Lua side short-circuits clicks outside this union straight to mpv's own binding, so it
+    /// must be kept in step with every layout the hit test can answer for.
+    private void SetLayout(List<WordRect> layout)
+    {
+        _hitTest.UpdateLayout(layout);
+        _ = TaskHelper.RunSafe(
+            () => PushHitBoundsAsync(layout, CancellationToken.None), _logger, "Push hit bounds");
+    }
+
+    private Task PushHitBoundsAsync(IReadOnlyList<WordRect> layout, CancellationToken ct)
+    {
+        if (layout.Count == 0)
+            return _ipc.SendScriptMessageAsync(LuaTarget, "jiten-set-hit-bounds", "clear", ct);
+
+        float x0 = float.MaxValue, y0 = float.MaxValue, x1 = float.MinValue, y1 = float.MinValue;
+        foreach (var rect in layout)
+        {
+            x0 = Math.Min(x0, rect.HitX0);
+            y0 = Math.Min(y0, rect.HitY0);
+            x1 = Math.Max(x1, rect.HitX1);
+            y1 = Math.Max(y1, rect.HitY1);
+        }
+
+        return _ipc.SendScriptMessageAsync(LuaTarget, "jiten-set-hit-bounds",
+            [Inv(x0), Inv(y0), Inv(x1), Inv(y1)], ct);
+
+        static string Inv(float v) => v.ToString("F0", System.Globalization.CultureInfo.InvariantCulture);
+    }
 
     public async Task OnSubtitleRenderedAsync(string? text, ParseCacheEntry? entry,
                                     List<WordRect> layout, CancellationToken ct)
@@ -101,7 +130,7 @@ public sealed class InteractionHandler : IDisposable
 
             await _popup.HideAsync(ct);
 
-            _hitTest.UpdateLayout(layout);
+            SetLayout(layout);
         }
         finally
         {
@@ -118,7 +147,7 @@ public sealed class InteractionHandler : IDisposable
         try
         {
             _currentEntry = entry;
-            _hitTest.UpdateLayout(layout);
+            SetLayout(layout);
 
             // The re-render that produced this layout was colourised without the reveal, so a word
             // the pointer had uncovered would silently blur back over while still counted as revealed.
@@ -133,12 +162,26 @@ public sealed class InteractionHandler : IDisposable
 
     public async Task OnMouseEventAsync(MouseEventArgs e, CancellationToken ct)
     {
-        // Clicks arriving mid-action are swallowed rather than passed through: mpv would otherwise
-        // fullscreen or pause on the impatient second double-click of a word still being mined.
+        // Clicks arriving mid-action on a word are swallowed rather than passed through: mpv would
+        // otherwise fullscreen or pause on the impatient second double-click of a word still being
+        // mined. Clicks that miss every word are handed back to mpv even while busy, so a seek or
+        // pause never silently disappears; the hit test reads an atomically-swapped list, so it is
+        // safe without the lock.
         if (!await _eventLock.WaitAsync(0, ct))
         {
             if (e.Type is MouseEventType.LeftPress or MouseEventType.DoubleClick)
-                _logger.LogDebug("Dropped {Type}: another interaction is in flight", e.Type);
+            {
+                if (_hitTest.HitTest(e.X, e.Y, _osd.Width, _osd.Height) is null)
+                {
+                    _logger.LogDebug("Busy {Type} missed every word: passed through", e.Type);
+                    await PassThroughAsync(
+                        e.Type == MouseEventType.LeftPress ? ClickPassthrough : DoubleClickPassthrough, ct);
+                }
+                else
+                {
+                    _logger.LogDebug("Dropped {Type} on word: another interaction is in flight", e.Type);
+                }
+            }
             return;
         }
 

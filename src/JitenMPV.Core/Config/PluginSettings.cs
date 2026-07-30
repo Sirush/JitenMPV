@@ -239,6 +239,10 @@ public sealed class PluginSettings
     [JsonPropertyName("debug_logging")]
     public bool DebugLogging { get; set; }
 
+    /// Paints each word's hit-test region over the subtitle in its own colour.
+    [JsonPropertyName("debug_show_hitboxes")]
+    public bool DebugShowHitboxes { get; set; }
+
     [JsonPropertyName("mouse_zone_percent")]
     public int MouseZonePercent { get; set; } = 65;
 

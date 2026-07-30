@@ -119,6 +119,7 @@ public partial class SettingsViewModel : ViewModelBase
     [ObservableProperty] private int _preparseBatchSize;
     [ObservableProperty] private bool _statusOverlayEnabled;
     [ObservableProperty] private bool _debugLogging;
+    [ObservableProperty] private bool _debugShowHitboxes;
     [ObservableProperty] private int _mouseZonePercent;
     [ObservableProperty] private bool _settingsButtonEnabled;
     [ObservableProperty] private bool _subtitleNavButtonsEnabled;
@@ -609,6 +610,7 @@ public partial class SettingsViewModel : ViewModelBase
         PreparseBatchSize = s.PreparseBatchSize;
         StatusOverlayEnabled = s.StatusOverlayEnabled;
         DebugLogging = s.DebugLogging;
+        DebugShowHitboxes = s.DebugShowHitboxes;
         MouseZonePercent = s.MouseZonePercent;
         SettingsButtonEnabled = s.SettingsButtonEnabled;
         SubtitleNavButtonsEnabled = s.SubtitleNavButtonsEnabled;
@@ -797,6 +799,7 @@ public partial class SettingsViewModel : ViewModelBase
             PreparseBatchSize = PreparseBatchSize,
             StatusOverlayEnabled = StatusOverlayEnabled,
             DebugLogging = DebugLogging,
+            DebugShowHitboxes = DebugShowHitboxes,
             MouseZonePercent = MouseZonePercent,
             SettingsButtonEnabled = SettingsButtonEnabled,
             SubtitleNavButtonsEnabled = SubtitleNavButtonsEnabled,
@@ -1270,6 +1273,7 @@ public partial class SettingsViewModel : ViewModelBase
                 PreparseBatchSize = defaults.PreparseBatchSize;
                 StatusOverlayEnabled = defaults.StatusOverlayEnabled;
                 DebugLogging = defaults.DebugLogging;
+                DebugShowHitboxes = defaults.DebugShowHitboxes;
                 MouseZonePercent = defaults.MouseZonePercent;
                 SettingsButtonEnabled = defaults.SettingsButtonEnabled;
                 SubtitleNavButtonsEnabled = defaults.SubtitleNavButtonsEnabled;

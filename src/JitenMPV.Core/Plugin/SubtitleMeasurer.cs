@@ -8,6 +8,18 @@ namespace JitenMPV.Core.Plugin;
 public sealed class SubtitleMeasurer(PluginSettings settings, OsdState osd)
 {
     private const int MeasureId = 99;
+
+    /// Every prefix is measured with this glyph appended and the glyph's own ink extent subtracted
+    /// back out, which recovers the pen position exactly. Measuring the bare prefix instead reads
+    /// its last glyph's ink right edge, which overstates the pen in fonts whose glyphs overhang
+    /// their advance (Yu Gothic draws ~44px art on a 34px advance at fs48) and understates it for
+    /// trailing whitespace, whose ink is trimmed entirely.
+    private const string SentinelGlyph = "国";
+
+    /// Measurement pen origin, kept off the canvas edge so outlines are not clipped out of the
+    /// reported bounds.
+    private const float MeasureOrigin = 64f;
+
     private volatile PluginSettings _settings = settings;
     private readonly BoundedCache<string, List<WordRect>> _cache = new(2000);
     private int _lastOsdVersion = -1;
@@ -57,20 +69,100 @@ public sealed class SubtitleMeasurer(PluginSettings settings, OsdState osd)
 
         var lines = SplitLines(text);
         var rects = new List<WordRect>();
-        int maxOverlayId = MeasureId;
-
         int align = OverlayRenderer.ClampAlign(s.SubtitleAlignment);
-        var fullAss = $@"{{\an{align}{posTags}{styleTags}}}{AssTagBuilder.EscapeText(text)}";
-        var fullBounds = await ipc.MeasureOverlayAsync(MeasureId, fullAss, ct);
-        if (fullBounds is null) return rects;
+        int nextId = MeasureId;
+        int AllocId() => nextId++;
 
-        float lineHeight = (float)(fullBounds.Height / lines.Count);
+        // \q2 keeps a measurement that would not fit at the left edge from wrapping, which would
+        // report the play-res width instead of the text's. \shad0\blur0 keeps a user's OSD shadow
+        // or blur style out of the reported ink bounds.
+        string MeasureTags() => $@"{{\an7\pos({MeasureOrigin:F0},{MeasureOrigin:F0})\q2{styleTags}\shad0\blur0}}";
 
+        var fullAss = $@"{{\an{align}{posTags}{styleTags}\shad0\blur0}}{AssTagBuilder.EscapeText(text)}";
+        var fullBounds = await ipc.MeasureOverlayAsync(AllocId(), fullAss, ct);
+        if (fullBounds is null)
+        {
+            await RemoveOverlaysAsync(ipc, nextId, ct);
+            return rects;
+        }
+
+        var lineInk = new OverlayBounds?[lines.Count];
+        var lineCentered = new OverlayBounds?[lines.Count];
+        var inkTasks = new Dictionary<int, (Task<OverlayBounds?> Ink, Task<OverlayBounds?> Centered)>();
+        for (int li = 0; li < lines.Count; li++)
+        {
+            var (lineText, _) = lines[li];
+            if (lineText.Length == 0) continue;
+
+            var escapedLine = AssTagBuilder.EscapeText(lineText);
+            inkTasks[li] = (
+                ipc.MeasureOverlayAsync(AllocId(), $"{MeasureTags()}{escapedLine}", ct),
+                ipc.MeasureOverlayAsync(AllocId(), $@"{{\an{align}{posTags}{styleTags}\shad0\blur0}}{escapedLine}", ct));
+        }
+
+        await Task.WhenAll(inkTasks.Values.SelectMany(t => new[] { t.Ink, t.Centered }));
+        foreach (var (li, tasks) in inkTasks)
+        {
+            lineInk[li] = await tasks.Ink;
+            lineCentered[li] = await tasks.Centered;
+        }
+
+        int firstIdx = -1, lastIdx = -1;
+        for (int li = 0; li < lines.Count; li++)
+        {
+            if (lineInk[li] is not { Height: > 0 }) continue;
+            if (firstIdx < 0) firstIdx = li;
+            lastIdx = li;
+        }
+
+        if (firstIdx < 0)
+        {
+            await RemoveOverlaysAsync(ipc, nextId, ct);
+            return rects;
+        }
+
+        // Line slots are one font line apart regardless of each line's ink, so the spacing is the
+        // block height minus the last line's own ink height, spread over the slots between them.
+        float lineSpacing = (float)(fullBounds.Height / Math.Max(lines.Count, 1));
+        if (lastIdx > firstIdx)
+        {
+            float derived = (float)((fullBounds.Height - lineInk[lastIdx]!.Height) / (lastIdx - firstIdx));
+            if (derived > 1f) lineSpacing = derived;
+        }
+
+        var linePrefixes = new List<int>?[lines.Count];
         for (int li = 0; li < lines.Count; li++)
         {
             var (lineText, lineStartIdx) = lines[li];
-            if (lineText.Length == 0) continue;
+            if (lineText.Length == 0 || lineInk[li] is null || lineCentered[li] is null) continue;
 
+            var positions = new SortedSet<int>();
+            foreach (var token in entry.Tokens)
+            {
+                if (token.Start < lineStartIdx ||
+                    token.Start + token.Length > lineStartIdx + lineText.Length) continue;
+                positions.Add(token.Start - lineStartIdx);
+                positions.Add(token.Start - lineStartIdx + token.Length);
+            }
+
+            var prefixes = positions.Where(p => p > 0 && p <= lineText.Length).ToList();
+            if (prefixes.Count > 0) linePrefixes[li] = prefixes;
+        }
+
+        float? sentinelInkX1 = null;
+        if (linePrefixes.Any(p => p is not null))
+        {
+            var sentinelBounds = await ipc.MeasureOverlayAsync(
+                AllocId(), $"{MeasureTags()}{SentinelGlyph}", ct);
+            if (sentinelBounds is not null && sentinelBounds.X1 > 0)
+                sentinelInkX1 = (float)sentinelBounds.X1;
+        }
+
+        for (int li = 0; li < lines.Count; li++)
+        {
+            if (linePrefixes[li] is not { } prefixPositions) continue;
+
+            var (lineText, lineStartIdx) = lines[li];
             var lineTokens = entry.Tokens
                 .Select((t, i) => (Index: i, Token: t))
                 .Where(x => x.Token.Start >= lineStartIdx
@@ -78,40 +170,14 @@ public sealed class SubtitleMeasurer(PluginSettings settings, OsdState osd)
                 .ToList();
 
             if (lineTokens.Count == 0) continue;
+            if (lineInk[li] is not { X1: > 0 } || lineCentered[li] is null) continue;
 
-            var escapedLine = AssTagBuilder.EscapeText(lineText);
-            var lineAss = $@"{{\an7\pos(0,0){styleTags}}}{escapedLine}";
-            var lineCenteredAss = $@"{{\an{align}{posTags}{styleTags}}}{escapedLine}";
-
-            var lineBoundsTask = ipc.MeasureOverlayAsync(MeasureId, lineAss, ct);
-            var lineCenteredTask = ipc.MeasureOverlayAsync(MeasureId + 1, lineCenteredAss, ct);
-            maxOverlayId = Math.Max(maxOverlayId, MeasureId + 1);
-            await Task.WhenAll(lineBoundsTask, lineCenteredTask);
-
-            var lineBounds = await lineBoundsTask;
-            var lineCentered = await lineCenteredTask;
-            if (lineBounds is null || lineBounds.X1 <= 0 || lineCentered is null) continue;
-
-            float visibleLeft = (float)lineCentered.X0;
-            float lineY = (float)(fullBounds.Y0 + li * lineHeight);
-
-            var positions = new SortedSet<int>();
-            foreach (var (_, token) in lineTokens)
-            {
-                positions.Add(token.Start - lineStartIdx);
-                positions.Add(token.Start - lineStartIdx + token.Length);
-            }
-
-            var prefixPositions = positions.Where(p => p > 0 && p <= lineText.Length).ToList();
             var prefixTasks = new Dictionary<int, Task<OverlayBounds?>>();
-            int measureIdOffset = 2;
             foreach (var pos in prefixPositions)
             {
-                var prefixAss = $@"{{\an7\pos(0,0){styleTags}}}{AssTagBuilder.EscapeText(lineText[..pos])}";
-                int overlayId = MeasureId + measureIdOffset;
-                prefixTasks[pos] = ipc.MeasureOverlayAsync(overlayId, prefixAss, ct);
-                maxOverlayId = Math.Max(maxOverlayId, overlayId);
-                measureIdOffset++;
+                var prefixText = AssTagBuilder.EscapeText(lineText[..pos]);
+                if (sentinelInkX1 is not null) prefixText += SentinelGlyph;
+                prefixTasks[pos] = ipc.MeasureOverlayAsync(AllocId(), $"{MeasureTags()}{prefixText}", ct);
             }
 
             await Task.WhenAll(prefixTasks.Values);
@@ -120,38 +186,58 @@ public sealed class SubtitleMeasurer(PluginSettings settings, OsdState osd)
             foreach (var pos in prefixPositions)
                 prefixBounds[pos] = await prefixTasks[pos];
 
-            var advances = BuildAdvances(prefixBounds, (float)s.BorderSize);
+            float border = (float)s.BorderSize;
+            var advances = BuildAdvances(prefixBounds, sentinelInkX1, border);
+
+            // The centred line's ink left is offset from its pen origin by the first glyph's side
+            // bearing (large for opening brackets) plus any leading whitespace; the an7 measurement
+            // of the same line carries the identical offset from MeasureOrigin, so subtracting it
+            // recovers the on-screen pen origin that prefix pen positions are relative to.
+            float penOrigin = (float)lineCentered[li]!.X0 - ((float)lineInk[li]!.X0 - MeasureOrigin);
+
+            float lineY = (float)fullBounds.Y0 + (li - firstIdx) * lineSpacing;
+            float lineHeight = (float)lineInk[li]!.Height;
 
             foreach (var (idx, token) in lineTokens)
             {
                 int localStart = token.Start - lineStartIdx;
                 int localEnd = localStart + token.Length;
 
-                float x0 = visibleLeft + advances.GetValueOrDefault(localStart);
-                float x1 = visibleLeft + advances.GetValueOrDefault(localEnd);
+                float x0 = penOrigin + advances.GetValueOrDefault(localStart, border) - border;
+                float x1 = penOrigin + advances.GetValueOrDefault(localEnd, border) - border;
 
                 rects.Add(new WordRect(idx, token.WordId, token.ReadingIndex,
                     x0, lineY, Math.Max(x1 - x0, 1), lineHeight));
             }
         }
 
-        await Task.WhenAll(
-            Enumerable.Range(MeasureId, maxOverlayId - MeasureId + 1)
-                .Select(id => ipc.RemoveOverlayAsync(id, ct)));
-        return rects;
+        await RemoveOverlaysAsync(ipc, nextId, ct);
+        return WordRect.AssignHitRegions(rects);
     }
 
-    /// Maps each prefix's measured ink right edge to an offset from the centred line's ink left
-    /// edge. Both measurements carry one outline width — the prefix's ink ends one outline past
-    /// its pen, the centred line's ink starts one outline before its text — so adding them cancels
-    /// the outline and the pen position carries across unscaled. Scaling the prefix by the line's
-    /// ink width instead counts the outline twice, which widens the run and drifts it right.
+    private static Task RemoveOverlaysAsync(MpvIpcClient ipc, int nextId, CancellationToken ct)
+        => Task.WhenAll(
+            Enumerable.Range(MeasureId, nextId - MeasureId)
+                .Select(id => ipc.RemoveOverlayAsync(id, ct)));
+
+    /// Maps each prefix position to its pen advance plus one outline width, relative to the line's
+    /// pen origin. Prefixes are measured with the sentinel appended, so subtracting the sentinel's
+    /// own ink right edge leaves exactly the pen position where the sentinel was placed. A null
+    /// sentinel falls back to the bare ink right edge, which drifts by the last glyph's overhang.
     internal static Dictionary<int, float> BuildAdvances(
-        IReadOnlyDictionary<int, OverlayBounds?> prefixBounds, float border)
+        IReadOnlyDictionary<int, OverlayBounds?> prefixBounds,
+        float? sentinelInkX1, float border)
     {
         var advances = new Dictionary<int, float> { [0] = border };
         foreach (var (pos, bounds) in prefixBounds)
-            advances[pos] = bounds is not null ? (float)bounds.X1 : border;
+        {
+            if (bounds is null)
+                advances[pos] = border;
+            else if (sentinelInkX1 is { } sx)
+                advances[pos] = (float)bounds.X1 - sx + border;
+            else
+                advances[pos] = (float)bounds.X1 - MeasureOrigin;
+        }
         return advances;
     }
 

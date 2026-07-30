@@ -249,6 +249,9 @@ public sealed class MpvIpcClient(string pipePath, ILogger logger) : IAsyncDispos
     public Task SendScriptMessageAsync(string target, string message, string arg1, string arg2, CancellationToken ct)
         => SendCommandAsync(["script-message-to", target, message, arg1, arg2], ct);
 
+    public Task SendScriptMessageAsync(string target, string message, IReadOnlyList<string> args, CancellationToken ct)
+        => SendCommandAsync(["script-message-to", target, message, .. args], ct);
+
     public Task KeybindAsync(string key, string command, CancellationToken ct)
         => SendCommandAsync(["keybind", key, command], ct);
 

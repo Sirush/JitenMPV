@@ -25,6 +25,7 @@ public sealed class PluginHost(
 {
     internal const int SubtitleOverlayId = 1;
     internal const int PitchUnderlineOverlayId = 2;
+    internal const int HitboxDebugOverlayId = 3;
     internal const string OpenSettingsMessage = "jiten-open-settings";
     internal const string ToggleSubtitlesMessage = "jiten-toggle-subtitles";
     private const string LuaScriptName = "jiten_mpv";
@@ -139,6 +140,9 @@ public sealed class PluginHost(
 
         if (_ipcClient is { } ipc)
         {
+            if (previous?.DebugShowHitboxes == true && !newSettings.DebugShowHitboxes)
+                _ = RunSafe(() => ipc.RemoveOverlayAsync(HitboxDebugOverlayId, CancellationToken.None));
+
             _ = RunSafe(() => ipc.SendScriptMessageAsync(LuaScriptName, "jiten-set-mouse-zone",
                 newSettings.MouseZonePercent.ToString(), CancellationToken.None));
             _ = RunSafe(() => ipc.SendScriptMessageAsync(LuaScriptName, "jiten-set-buttons",
@@ -174,6 +178,7 @@ public sealed class PluginHost(
                         if (!_subtitlesVisible || _currentSubtitleText != text) return;
                         interaction.UpdateLayout(layout);
                         await RenderPitchUnderlinesAsync(entry, layout, ipc, CancellationToken.None);
+                        await RenderDebugHitboxesAsync(layout, ipc, CancellationToken.None);
                     }
                 }, logger, "Re-render subtitle after settings change");
             }
@@ -222,6 +227,19 @@ public sealed class PluginHost(
             await ipc.RemoveOverlayAsync(PitchUnderlineOverlayId, ct);
         else
             await ipc.ShowOverlayAsync(PitchUnderlineOverlayId, ass, ct);
+    }
+
+    /// No-ops while the option is off so the common path costs no extra round trip; ReloadSettings
+    /// clears the overlay when it is turned off.
+    private Task RenderDebugHitboxesAsync(
+        IReadOnlyList<WordRect> layout, MpvIpcClient ipc, CancellationToken ct)
+    {
+        if (_settings?.DebugShowHitboxes != true) return Task.CompletedTask;
+
+        var ass = HitboxDebugRenderer.Render(layout);
+        return ass.Length == 0
+            ? ipc.RemoveOverlayAsync(HitboxDebugOverlayId, ct)
+            : ipc.ShowOverlayAsync(HitboxDebugOverlayId, ass, ct);
     }
 
     private static (IPlusOneDetector?, FrequencyMarker?) BuildDetectors(PluginSettings settings)
@@ -337,6 +355,11 @@ public sealed class PluginHost(
             {
                 _ = RunSafe(async () =>
                 {
+                    // While a popup is up, the Lua side forwards every click so a click anywhere
+                    // can dismiss it; outside-the-subtitle clicks are otherwise short-circuited.
+                    await ipcClient.SendScriptMessageAsync(
+                        LuaScriptName, "jiten-popup-state", visible ? "1" : "0", ct);
+
                     if (visible)
                         await keybindManager.EnableKeybindsAsync(ct);
                     else
@@ -515,6 +538,8 @@ public sealed class PluginHost(
                 using var cleanupCts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
                 var cct = cleanupCts.Token;
                 await ipcClient.RemoveOverlayAsync(SubtitleOverlayId, cct);
+                await ipcClient.RemoveOverlayAsync(PitchUnderlineOverlayId, cct);
+                await ipcClient.RemoveOverlayAsync(HitboxDebugOverlayId, cct);
                 await ipcClient.RemoveOverlayAsync(StatusOverlay.StatusLayerId, cct);
                 await ipcClient.SendScriptMessageAsync(
                     LuaScriptName, "jiten-set-client", "", cct);
@@ -607,6 +632,7 @@ public sealed class PluginHost(
                     await interaction.OnSubtitleRenderedAsync(null, null, [], ct);
                 await ipc.RemoveOverlayAsync(SubtitleOverlayId, ct);
                 await ipc.RemoveOverlayAsync(PitchUnderlineOverlayId, ct);
+                await RenderDebugHitboxesAsync([], ipc, ct);
             }
 
             await ipc.ShowTextAsync(
@@ -775,6 +801,7 @@ public sealed class PluginHost(
                 if (Superseded()) return;
                 await ipcClient.RemoveOverlayAsync(SubtitleOverlayId, ct);
                 await ipcClient.RemoveOverlayAsync(PitchUnderlineOverlayId, ct);
+                await RenderDebugHitboxesAsync([], ipcClient, ct);
                 return;
             }
 
@@ -797,6 +824,7 @@ public sealed class PluginHost(
             var layout = measureTask.Result;
 
             await RenderPitchUnderlinesAsync(entry, layout, ipcClient, ct);
+            await RenderDebugHitboxesAsync(layout, ipcClient, ct);
             if (Superseded()) return;
 
             if (geometryOnly)

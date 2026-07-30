@@ -1193,6 +1193,9 @@
               <TextBlock Text="DIAGNOSTICS" Classes="section-header" />
               <CheckBox Content="Show status overlay messages" IsChecked="{Binding StatusOverlayEnabled}" />
               <CheckBox Content="Enable debug logging" IsChecked="{Binding DebugLogging}" />
+              <CheckBox Content="Show word hitboxes" IsChecked="{Binding DebugShowHitboxes}" />
+              <TextBlock Text="Draws the clickable area of every word over the subtitle, each in its own colour. The filled box is what the hover test accepts, the inner outline is the word itself, and the centre bar is what decides the winner where two boxes overlap."
+                         FontSize="11" Foreground="#71717a" TextWrapping="Wrap" />
             </StackPanel>
 
             <Border Classes="divider" />

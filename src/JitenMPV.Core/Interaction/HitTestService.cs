@@ -4,7 +4,9 @@ namespace JitenMPV.Core.Interaction;
 
 public sealed class HitTestService
 {
-    private const float YTolerance = 10f;
+    /// Weights vertical distance so a point in the padding between two lines resolves to the
+    /// nearer line before horizontal position is considered at all.
+    private const float LinePenalty = 10_000f;
 
     private List<WordRect> _layout = [];
 
@@ -19,20 +21,22 @@ public sealed class HitTestService
         float oy = (float)(mouseY * scale);
 
         WordRect? best = null;
-        float bestDist = float.MaxValue;
+        float bestScore = float.MaxValue;
 
         foreach (var rect in _layout)
         {
-            if (oy < rect.Y - YTolerance || oy > rect.Y + rect.Height + YTolerance)
+            if (ox < rect.HitX0 || ox > rect.HitX1 || oy < rect.HitY0 || oy > rect.HitY1)
                 continue;
 
-            float cx = rect.X + rect.Width / 2f;
-            float dist = Math.Abs(ox - cx);
+            // Zero inside the glyph box, else distance to it: a point on a word's ink always beats
+            // a neighbour's padding, however narrow that neighbour is.
+            float dx = Math.Max(Math.Max(rect.X - ox, ox - rect.Right), 0f);
+            float dy = Math.Max(Math.Max(rect.Y - oy, oy - rect.Bottom), 0f);
+            float score = dy * LinePenalty + dx;
 
-            if (dist < bestDist && ox >= rect.X - rect.Width * 0.3f
-                                && ox <= rect.X + rect.Width * 1.3f)
+            if (score < bestScore)
             {
-                bestDist = dist;
+                bestScore = score;
                 best = rect;
             }
         }

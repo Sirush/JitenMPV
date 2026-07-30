@@ -86,6 +86,26 @@ local was_in_zone = false
 local osd_width, osd_height = 1280, 720
 local mouse_zone = 0.65
 
+-- Union of the plugin's word hit regions, in its 720-line overlay units. Clicks outside it run
+-- mpv's own binding immediately instead of round-tripping through the plugin, which also keeps
+-- them alive while the plugin is busy. Gating starts only once a bounds message has arrived, so
+-- a plugin build that never sends one keeps the forward-everything behaviour.
+local OVERLAY_RES_Y = 720
+local hit_bounds = nil
+local hit_bounds_supported = false
+local popup_visible = false
+local click_forwarded = false
+
+local function click_targets_plugin(mx, my)
+    if popup_visible then return true end
+    if not hit_bounds_supported then return true end
+    if not hit_bounds or osd_height <= 0 then return false end
+    local scale = OVERLAY_RES_Y / osd_height
+    local ox, oy = mx * scale, my * scale
+    return ox >= hit_bounds.x0 and ox <= hit_bounds.x1
+       and oy >= hit_bounds.y0 and oy <= hit_bounds.y1
+end
+
 local owned_keys = { MBTN_LEFT = true, MBTN_LEFT_DBL = true }
 
 -- mpv hands a key to exactly one binding, so claiming these two means the command they would
@@ -508,6 +528,11 @@ end
 local function set_plugin_client(name)
     bar.client = (name ~= nil and name ~= "") and name or nil
     local connected = bar.client ~= nil
+    if not connected then
+        hit_bounds = nil
+        hit_bounds_supported = false
+        popup_visible = false
+    end
     set_nav_keys_bound(connected)
     refresh_subtitle_toggle_bindings()
     bar_refresh()
@@ -571,17 +596,20 @@ local function on_mouse_left(tbl)
             hit.action()
             return
         end
-        if not plugin_started then
+        if not plugin_started or not click_targets_plugin(mx, my) then
+            click_forwarded = false
             run_fallback("MBTN_LEFT")
             return
         end
+        click_forwarded = true
         send("jiten-mouse-left-press", tostring(mx), tostring(my))
     elseif tbl.event == "up" then
         if bar.press_consumed then
             bar.press_consumed = false
             return
         end
-        if plugin_started then
+        if plugin_started and click_forwarded then
+            click_forwarded = false
             send("jiten-mouse-left-release", tostring(mx), tostring(my))
         end
     end
@@ -590,7 +618,7 @@ end
 local function on_double_click()
     local mx, my = mp.get_mouse_pos()
     if bar_hit(mx, my) then return end
-    if not plugin_started then
+    if not plugin_started or not click_targets_plugin(mx, my) then
         run_fallback("MBTN_LEFT_DBL")
         return
     end
@@ -599,34 +627,62 @@ end
 
 local mouse_timer = nil
 
-local function poll_mouse()
-    if not mouse_tracking then return end
-    local mx, my = mp.get_mouse_pos()
+-- mpv 0.34+ reports pointer motion through the mouse-pos property, which arrives per move instead
+-- of at the poll interval; on older builds the timer below keeps polling as before.
+local native_mouse = mp.get_property_native("mouse-pos") ~= nil
 
-    if mx ~= last_mouse_x or my ~= last_mouse_y then
-        last_mouse_x = mx
-        last_mouse_y = my
-        bar_on_move(mx, my)
-
-        if plugin_started then
-            if my >= osd_height * mouse_zone then
-                was_in_zone = true
-                send("jiten-mouse-move", tostring(mx), tostring(my))
-            elseif was_in_zone then
-                was_in_zone = false
-                send("jiten-mouse-leave", "0", "0")
-            end
+local function handle_mouse(mx, my, hover)
+    -- hover false means the pointer left the window, which can happen without a final coordinate
+    -- change, so it is handled before the movement dedup.
+    if hover == false then
+        last_mouse_x, last_mouse_y = mx, my
+        if plugin_started and was_in_zone then
+            was_in_zone = false
+            send("jiten-mouse-leave", "0", "0")
         end
+        return
     end
 
+    if mx == last_mouse_x and my == last_mouse_y then return end
+    last_mouse_x = mx
+    last_mouse_y = my
+    bar_on_move(mx, my)
+
+    if not plugin_started then return end
+
+    if my >= osd_height * mouse_zone then
+        was_in_zone = true
+        send("jiten-mouse-move", tostring(mx), tostring(my))
+    elseif was_in_zone then
+        was_in_zone = false
+        send("jiten-mouse-leave", "0", "0")
+    end
+end
+
+-- With native mouse-pos the timer only drives the button bar's idle fade-out, which needs to fire
+-- after the pointer has stopped producing events.
+local function poll_mouse()
+    if not mouse_tracking then return end
+    if not native_mouse then
+        local mx, my = mp.get_mouse_pos()
+        handle_mouse(mx, my, nil)
+    end
     bar_tick()
+end
+
+if native_mouse then
+    mp.observe_property("mouse-pos", "native", function(_, pos)
+        if not mouse_tracking or not pos or not pos.x then return end
+        handle_mouse(pos.x, pos.y, pos.hover)
+        bar_tick()
+    end)
 end
 
 local function enable_tracking()
     if mouse_tracking then return end
     mouse_tracking = true
     if not mouse_timer then
-        mouse_timer = mp.add_periodic_timer(1 / 15, poll_mouse)
+        mouse_timer = mp.add_periodic_timer(native_mouse and 0.25 or 1 / 15, poll_mouse)
     else
         mouse_timer:resume()
     end
@@ -705,6 +761,20 @@ mp.register_script_message("jiten-enable-tracking", enable_tracking)
 mp.register_script_message("jiten-disable-tracking", disable_tracking)
 mp.register_script_message("jiten-set-mouse-zone", function(pct)
     mouse_zone = tonumber(pct) / 100.0
+end)
+
+mp.register_script_message("jiten-set-hit-bounds", function(x0, y0, x1, y1)
+    hit_bounds_supported = true
+    local nx0, ny0, nx1, ny1 = tonumber(x0), tonumber(y0), tonumber(x1), tonumber(y1)
+    if nx0 and ny0 and nx1 and ny1 then
+        hit_bounds = { x0 = nx0, y0 = ny0, x1 = nx1, y1 = ny1 }
+    else
+        hit_bounds = nil
+    end
+end)
+
+mp.register_script_message("jiten-popup-state", function(state)
+    popup_visible = state == "1"
 end)
 
 mp.register_script_message("jiten-set-client", function(name)
