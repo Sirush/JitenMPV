@@ -90,7 +90,6 @@ public sealed class InteractionHandler : IDisposable
         await _eventLock.WaitAsync(ct);
         try
         {
-            bool textChanged = text != _currentText;
             _currentText = text;
             _currentEntry = entry;
 
@@ -102,8 +101,9 @@ public sealed class InteractionHandler : IDisposable
 
             await _popup.HideAsync(ct);
 
-            if (textChanged)
-                _hitTest.UpdateLayout(layout);
+            // Geometry-only renders deliberately carry the same text. Their freshly measured
+            // rectangles are still authoritative and must replace the previous OSD-size layout.
+            _hitTest.UpdateLayout(layout);
         }
         finally
         {
