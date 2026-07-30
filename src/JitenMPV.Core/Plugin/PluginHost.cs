@@ -60,6 +60,8 @@ public sealed class PluginHost(
     private volatile bool _wasPausedBeforeSettings;
     private volatile bool _subtitlesVisible = true;
     private readonly SemaphoreSlim _subtitleVisibilityLock = new(1, 1);
+
+    private volatile bool _shuttingDown;
     private volatile string? _currentSubtitleText;
     private long? _mpvWindowId;
     private IReadOnlyList<string> _mpvDisplayNames = [];
@@ -382,6 +384,13 @@ public sealed class PluginHost(
                     return;
                 }
 
+                if (name == "sub-visibility")
+                {
+                    if (data.ValueKind == JsonValueKind.True && !_shuttingDown)
+                        _ = RunSafe(() => ipcClient.SetPropertyAsync("sub-visibility", "no", ct));
+                    return;
+                }
+
                 if (data.ValueKind != JsonValueKind.Number) return;
                 int value = data.GetInt32();
                 bool changed = name switch
@@ -394,7 +403,8 @@ public sealed class PluginHost(
 
                 renderer.RebuildPreamble();
                 QueueSubtitleRender(_currentSubtitleRaw, ipcClient, colorizer,
-                    measurer, interaction, lineJoiner, ct, OsdGeometrySettleDelay);
+                    measurer, interaction, lineJoiner, ct, OsdGeometrySettleDelay,
+                    geometryOnly: true);
             };
 
             if (settings.PreparseEnabled)
@@ -435,6 +445,7 @@ public sealed class PluginHost(
             await ipcClient.ObservePropertyAsync("osd-height", 3, ct);
             await ipcClient.ObservePropertyAsync("window-id", 6, ct);
             await ipcClient.ObservePropertyAsync("display-names", 7, ct);
+            await ipcClient.ObservePropertyAsync("sub-visibility", 8, ct);
 
             if (settings.PreparseEnabled)
             {
@@ -498,6 +509,7 @@ public sealed class PluginHost(
         }
         finally
         {
+            _shuttingDown = true;
             try
             {
                 using var cleanupCts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
@@ -513,6 +525,7 @@ public sealed class PluginHost(
             statusOverlay.Dispose();
             plusService.Dispose();
             TaskHelper.CancelAndDispose(ref _currentSubtitleCts);
+            _subtitleVisibilityLock.Dispose();
         }
     }
 
@@ -659,13 +672,29 @@ public sealed class PluginHost(
 
         // A Wayland desktop is fine when mpv itself selected X11/XWayland: window-id is then an XID
         // and the popup can be positioned and parented through the same X display.
-        if (await ipc.GetPropertyAsync<long?>("window-id", ct) is > 0)
+        if (await WaitForMpvWindowAsync(ipc, ct))
             return false;
 
         await ipc.ShowTextAsync(
             "jiten-mpv: native Wayland video detected. Subtitle colouring works, but precise "
             + "dictionary popup placement needs mpv to use X11/XWayland.", NoticeDurationMs, ct);
         return true;
+    }
+
+    /// mpv publishes window-id only once the video output window exists, so reading it once at startup
+    /// reports "no window" for an XWayland session that is merely still coming up.
+    private static async Task<bool> WaitForMpvWindowAsync(MpvIpcClient ipc, CancellationToken ct)
+    {
+        const int attempts = 10;
+        var interval = TimeSpan.FromMilliseconds(200);
+
+        for (int i = 0; i < attempts; i++)
+        {
+            if (await ipc.GetPropertyAsync<long?>("window-id", ct) is > 0) return true;
+            if (i < attempts - 1) await Task.Delay(interval, ct);
+        }
+
+        return false;
     }
 
     /// Audio and clip mining shell out to ffmpeg, so its absence is a half-broken install rather
@@ -700,7 +729,8 @@ public sealed class PluginHost(
         string? text, MpvIpcClient ipcClient,
         SubtitleColorizer colorizer, SubtitleMeasurer measurer,
         InteractionHandler interaction, SubtitleLineJoiner joiner,
-        CancellationToken lifetimeToken, TimeSpan settleDelay = default)
+        CancellationToken lifetimeToken, TimeSpan settleDelay = default,
+        bool geometryOnly = false)
     {
         if (!_subtitlesVisible) return;
 
@@ -716,7 +746,7 @@ public sealed class PluginHost(
                 if (settleDelay > TimeSpan.Zero)
                     await Task.Delay(settleDelay, token);
                 await OnSubtitleChangedAsync(text, ipcClient, colorizer,
-                    measurer, interaction, joiner, version, token);
+                    measurer, interaction, joiner, version, geometryOnly, token);
             }, logger, "Render subtitle")
             .ContinueWith(_ => linkedCts.Dispose(), TaskScheduler.Default);
     }
@@ -727,6 +757,7 @@ public sealed class PluginHost(
         SubtitleMeasurer measurer, InteractionHandler interaction,
         SubtitleLineJoiner joiner,
         int renderVersion,
+        bool geometryOnly,
         CancellationToken ct)
     {
         // Cancellation is cooperative, so an already-dispatched overlay write can still land after a
@@ -767,7 +798,11 @@ public sealed class PluginHost(
 
             await RenderPitchUnderlinesAsync(entry, layout, ipcClient, ct);
             if (Superseded()) return;
-            await interaction.OnSubtitleRenderedAsync(display, entry, layout, ct);
+
+            if (geometryOnly)
+                await interaction.OnSubtitleLayoutChangedAsync(entry, layout, ct);
+            else
+                await interaction.OnSubtitleRenderedAsync(display, entry, layout, ct);
         }
         catch (OperationCanceledException) { }
         catch (Exception ex)

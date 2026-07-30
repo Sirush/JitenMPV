@@ -101,9 +101,29 @@ public sealed class InteractionHandler : IDisposable
 
             await _popup.HideAsync(ct);
 
-            // Geometry-only renders deliberately carry the same text. Their freshly measured
-            // rectangles are still authoritative and must replace the previous OSD-size layout.
             _hitTest.UpdateLayout(layout);
+        }
+        finally
+        {
+            _eventLock.Release();
+        }
+    }
+
+    /// Re-measurement of the line already on screen, after the OSD changed size. The popup, autopause
+    /// state and blur reveals belong to that same line, so they outlive it; only the rectangles move.
+    public async Task OnSubtitleLayoutChangedAsync(
+        ParseCacheEntry? entry, List<WordRect> layout, CancellationToken ct)
+    {
+        await _eventLock.WaitAsync(ct);
+        try
+        {
+            _currentEntry = entry;
+            _hitTest.UpdateLayout(layout);
+
+            // The re-render that produced this layout was colourised without the reveal, so a word
+            // the pointer had uncovered would silently blur back over while still counted as revealed.
+            if (_blur.HasRevealed)
+                await ReRenderSubtitleAsync(ct);
         }
         finally
         {
