@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia;
@@ -24,6 +25,7 @@ public sealed class AvaloniaPopupPresenter : IPopupPresenter
     private int _offsetPx = 60;
     private double _lastFontScale = -1;
     private int _lastMaxWidth = -1;
+    private PopupWindowContext _windowContext = PopupWindowContext.Empty;
     private bool _repositionQueued;
 
     public bool IsVisible => _isVisible;
@@ -33,7 +35,17 @@ public sealed class AvaloniaPopupPresenter : IPopupPresenter
     public event Action? MouseEntered;
     public event Action? MouseLeft;
 
-    public Task ShowAsync(PopupData data, CancellationToken ct)
+    public void UpdateWindowContext(PopupWindowContext context)
+    {
+        _windowContext = context;
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (_window?.IsVisible == true)
+                X11MpvWindowBridge.SetTransientOwner(_window, _windowContext.WindowId);
+        });
+    }
+
+    public Task ShowAsync(PopupData data, PopupPointerPosition pointer, CancellationToken ct)
     {
         return Dispatcher.UIThread.InvokeAsync(() =>
         {
@@ -46,7 +58,7 @@ public sealed class AvaloniaPopupPresenter : IPopupPresenter
             _viewModel!.Update(data);
             ApplyFontScale(data.FontScale);
             ApplyMaxWidth(data.MaxWidthPx);
-            _lastCursorPos = CursorPositionHelper.GetCursorPosition();
+            _lastCursorPos = ResolveCursorPosition(pointer);
 
             PositionWindow(_lastCursorPos);
 
@@ -54,6 +66,9 @@ public sealed class AvaloniaPopupPresenter : IPopupPresenter
                 _window.Show();
 
             _isVisible = true;
+            X11MpvWindowBridge.SetTransientOwner(_window, _windowContext.WindowId);
+            Dispatcher.UIThread.Post(
+                () => PositionWindow(_lastCursorPos), DispatcherPriority.Render);
             QueuePositionWindow();
         }).GetTask();
     }
@@ -107,6 +122,20 @@ public sealed class AvaloniaPopupPresenter : IPopupPresenter
         }, DispatcherPriority.Render);
     }
 
+    private PixelPoint? ResolveCursorPosition(PopupPointerPosition pointer)
+    {
+        if (!OperatingSystem.IsLinux())
+            return CursorPositionHelper.GetCursorPosition();
+
+        // Native Wayland does not expose a global position to this XWayland process. An absent mpv
+        // XID therefore means "anchor deterministically", not "reuse X11's last known pointer".
+        var translated = X11MpvWindowBridge.TranslateToRoot(
+            _windowContext.WindowId, pointer.X, pointer.Y);
+        return translated ?? (_windowContext.WindowId is > 0
+            ? CursorPositionHelper.GetCursorPosition()
+            : null);
+    }
+
     private void ApplyFontScale(double scale)
     {
         if (_window is null || scale == _lastFontScale) return;
@@ -129,7 +158,7 @@ public sealed class AvaloniaPopupPresenter : IPopupPresenter
 
         var screen = cursorPos is { } known
             ? _window.Screens.ScreenFromPoint(known)
-            : _window.Screens.Primary;
+            : ScreenFromMpvDisplayName() ?? _window.Screens.Primary;
         if (screen is null) return;
 
         var workArea = screen.WorkingArea;
@@ -150,6 +179,16 @@ public sealed class AvaloniaPopupPresenter : IPopupPresenter
         _window.Position = new PixelPoint(
             Math.Clamp(x, workArea.X, Math.Max(workArea.X, workArea.Right - windowWidth)),
             Math.Clamp(y, workArea.Y, Math.Max(workArea.Y, workArea.Bottom - windowHeight)));
+    }
+
+    private Avalonia.Platform.Screen? ScreenFromMpvDisplayName()
+    {
+        if (_window is null || _windowContext.DisplayNames.Count == 0) return null;
+
+        return _window.Screens.All.FirstOrDefault(screen =>
+            screen.DisplayName is { } name
+            && _windowContext.DisplayNames.Any(display =>
+                string.Equals(display, name, StringComparison.OrdinalIgnoreCase)));
     }
 
     /// The pointer sits inside the subtitle line it is pointing at, so the offset has to clear the

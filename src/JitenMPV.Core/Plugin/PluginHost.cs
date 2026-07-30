@@ -54,6 +54,8 @@ public sealed class PluginHost(
     private volatile MediaCaptureCoordinator? _mediaCapture;
     private volatile bool _wasPausedBeforeSettings;
     private volatile string? _currentSubtitleText;
+    private long? _mpvWindowId;
+    private IReadOnlyList<string> _mpvDisplayNames = [];
 
     /// The line as mpv gave it, kept so the joined form can be recomputed when a setting that
     /// decides whether it fits changes under a subtitle already on screen.
@@ -350,6 +352,31 @@ public sealed class PluginHost(
 
             ipcClient.PropertyChanged += (name, data) =>
             {
+                if (name == "window-id")
+                {
+                    var windowId = data.ValueKind == JsonValueKind.Number
+                                   && data.TryGetInt64(out var id) && id > 0
+                        ? id
+                        : (long?)null;
+                    _mpvWindowId = windowId;
+                    popupPresenter.UpdateWindowContext(
+                        new PopupWindowContext(windowId, _mpvDisplayNames));
+                    return;
+                }
+
+                if (name == "display-names")
+                {
+                    _mpvDisplayNames = data.ValueKind == JsonValueKind.Array
+                        ? [.. data.EnumerateArray()
+                            .Where(item => item.ValueKind == JsonValueKind.String)
+                            .Select(item => item.GetString())
+                            .OfType<string>()]
+                        : [];
+                    popupPresenter.UpdateWindowContext(
+                        new PopupWindowContext(_mpvWindowId, _mpvDisplayNames));
+                    return;
+                }
+
                 if (data.ValueKind != JsonValueKind.Number) return;
                 int value = data.GetInt32();
                 bool changed = name switch
@@ -393,6 +420,8 @@ public sealed class PluginHost(
             await ipcClient.ObservePropertyAsync("sub-text", 1, ct);
             await ipcClient.ObservePropertyAsync("osd-width", 2, ct);
             await ipcClient.ObservePropertyAsync("osd-height", 3, ct);
+            await ipcClient.ObservePropertyAsync("window-id", 6, ct);
+            await ipcClient.ObservePropertyAsync("display-names", 7, ct);
 
             if (settings.PreparseEnabled)
             {
@@ -572,9 +601,14 @@ public sealed class PluginHost(
                           "wayland", StringComparison.OrdinalIgnoreCase);
         if (!wayland) return false;
 
+        // A Wayland desktop is fine when mpv itself selected X11/XWayland: window-id is then an XID
+        // and the popup can be positioned and parented through the same X display.
+        if (await ipc.GetPropertyAsync<long?>("window-id", ct) is > 0)
+            return false;
+
         await ipc.ShowTextAsync(
-            "jiten-mpv: Wayland detected. Subtitle colouring works, but dictionary popup "
-            + "positioning needs an X11 session.", NoticeDurationMs, ct);
+            "jiten-mpv: native Wayland video detected. Subtitle colouring works, but precise "
+            + "dictionary popup placement needs mpv to use X11/XWayland.", NoticeDurationMs, ct);
         return true;
     }
 
