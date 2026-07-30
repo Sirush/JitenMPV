@@ -32,9 +32,13 @@ public sealed class PluginHost(
     /// mpv reports the new track before it has finished loading it, and a file change fires several
     /// of these at once; the reload waits this long so it reads a settled track-list exactly once.
     private static readonly TimeSpan SubtitleSourceSettleDelay = TimeSpan.FromMilliseconds(400);
+    /// mpv normally publishes width and height as separate events. Waiting briefly prevents
+    /// measuring the subtitle once against a half-old geometry and again against the final pair.
+    private static readonly TimeSpan OsdGeometrySettleDelay = TimeSpan.FromMilliseconds(50);
 
     private CancellationTokenSource? _currentSubtitleCts;
     private CancellationTokenSource? _preParseCts;
+    private int _subtitleRenderVersion;
     private volatile PluginSettings? _settings;
     private volatile StyleResolver? _styleResolver;
     private volatile OverlayRenderer? _renderer;
@@ -57,6 +61,8 @@ public sealed class PluginHost(
     private volatile bool _subtitlesVisible = true;
     private readonly SemaphoreSlim _subtitleVisibilityLock = new(1, 1);
     private volatile string? _currentSubtitleText;
+    private long? _mpvWindowId;
+    private IReadOnlyList<string> _mpvDisplayNames = [];
 
     /// The line as mpv gave it, kept so the joined form can be recomputed when a setting that
     /// decides whether it fits changes under a subtitle already on screen.
@@ -338,6 +344,8 @@ public sealed class PluginHost(
 
             ipcClient.SubtitleTextChanged += text =>
             {
+                _currentSubtitleRaw = text;
+                _currentSubtitleText = text;
                 QueueSubtitleRender(text, ipcClient, colorizer,
                     measurer, interaction, lineJoiner, ct);
             };
@@ -349,6 +357,31 @@ public sealed class PluginHost(
 
             ipcClient.PropertyChanged += (name, data) =>
             {
+                if (name == "window-id")
+                {
+                    var windowId = data.ValueKind == JsonValueKind.Number
+                                   && data.TryGetInt64(out var id) && id > 0
+                        ? id
+                        : (long?)null;
+                    _mpvWindowId = windowId;
+                    popupPresenter.UpdateWindowContext(
+                        new PopupWindowContext(windowId, _mpvDisplayNames));
+                    return;
+                }
+
+                if (name == "display-names")
+                {
+                    _mpvDisplayNames = data.ValueKind == JsonValueKind.Array
+                        ? [.. data.EnumerateArray()
+                            .Where(item => item.ValueKind == JsonValueKind.String)
+                            .Select(item => item.GetString())
+                            .OfType<string>()]
+                        : [];
+                    popupPresenter.UpdateWindowContext(
+                        new PopupWindowContext(_mpvWindowId, _mpvDisplayNames));
+                    return;
+                }
+
                 if (data.ValueKind != JsonValueKind.Number) return;
                 int value = data.GetInt32();
                 bool changed = name switch
@@ -357,7 +390,11 @@ public sealed class PluginHost(
                     "osd-height" => osd.Update(osd.Width, value),
                     _ => false
                 };
-                if (changed) renderer.RebuildPreamble();
+                if (!changed) return;
+
+                renderer.RebuildPreamble();
+                QueueSubtitleRender(_currentSubtitleRaw, ipcClient, colorizer,
+                    measurer, interaction, lineJoiner, ct, OsdGeometrySettleDelay);
             };
 
             if (settings.PreparseEnabled)
@@ -396,6 +433,8 @@ public sealed class PluginHost(
             await ipcClient.ObservePropertyAsync("sub-text", 1, ct);
             await ipcClient.ObservePropertyAsync("osd-width", 2, ct);
             await ipcClient.ObservePropertyAsync("osd-height", 3, ct);
+            await ipcClient.ObservePropertyAsync("window-id", 6, ct);
+            await ipcClient.ObservePropertyAsync("display-names", 7, ct);
 
             if (settings.PreparseEnabled)
             {
@@ -473,6 +512,7 @@ public sealed class PluginHost(
 
             statusOverlay.Dispose();
             plusService.Dispose();
+            TaskHelper.CancelAndDispose(ref _currentSubtitleCts);
         }
     }
 
@@ -616,9 +656,14 @@ public sealed class PluginHost(
                           "wayland", StringComparison.OrdinalIgnoreCase);
         if (!wayland) return false;
 
+        // A Wayland desktop is fine when mpv itself selected X11/XWayland: window-id is then an XID
+        // and the popup can be positioned and parented through the same X display.
+        if (await ipc.GetPropertyAsync<long?>("window-id", ct) is > 0)
+            return false;
+
         await ipc.ShowTextAsync(
-            "jiten-mpv: Wayland detected. Subtitle colouring works, but dictionary popup "
-            + "positioning needs an X11 session.", NoticeDurationMs, ct);
+            "jiten-mpv: native Wayland video detected. Subtitle colouring works, but precise "
+            + "dictionary popup placement needs mpv to use X11/XWayland.", NoticeDurationMs, ct);
         return true;
     }
 
@@ -673,6 +718,7 @@ public sealed class PluginHost(
         SubtitleColorizer colorizer,
         SubtitleMeasurer measurer, InteractionHandler interaction,
         SubtitleLineJoiner joiner,
+        int renderVersion,
         CancellationToken ct)
     {
         try
@@ -684,6 +730,7 @@ public sealed class PluginHost(
             if (string.IsNullOrWhiteSpace(text))
             {
                 await interaction.OnSubtitleRenderedAsync(null, null, [], ct);
+                if (renderVersion != Volatile.Read(ref _subtitleRenderVersion)) return;
                 await ipcClient.RemoveOverlayAsync(SubtitleOverlayId, ct);
                 await ipcClient.RemoveOverlayAsync(PitchUnderlineOverlayId, ct);
                 return;

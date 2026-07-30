@@ -29,13 +29,14 @@ public sealed class PopupManager
 
     public bool IsMouseOverPopup => _mouseOverPopup;
 
-    public async Task ShowAsync(WordRect word, ParseCacheEntry entry, CancellationToken ct)
+    public async Task ShowAsync(
+        WordRect word, ParseCacheEntry entry, PopupPointerPosition pointer, CancellationToken ct)
     {
         var key = (word.WordId, word.ReadingIndex);
         if (_currentWord == key) return;
 
         _currentWord = key;
-        await ShowForKeyAsync(key, entry, ct);
+        await ShowForKeyAsync(key, entry, pointer, ct);
     }
 
     public async Task HideAsync(CancellationToken ct)
@@ -54,12 +55,14 @@ public sealed class PopupManager
         await UpdateForKeyAsync(key, entry, ct);
     }
 
-    private async Task ShowForKeyAsync((int WordId, byte ReadingIndex) key, ParseCacheEntry entry, CancellationToken ct)
+    private async Task ShowForKeyAsync(
+        (int WordId, byte ReadingIndex) key, ParseCacheEntry entry,
+        PopupPointerPosition pointer, CancellationToken ct)
     {
         var data = BuildPopupData(key, entry);
         if (data is null) return;
         bool wasVisible = _presenter.IsVisible;
-        await _presenter.ShowAsync(data, ct);
+        await _presenter.ShowAsync(data, pointer, ct);
         if (!wasVisible && _presenter.IsVisible)
             VisibilityChanged?.Invoke(true);
     }

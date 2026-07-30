@@ -21,7 +21,13 @@ Subtitles are parsed as they play, each word coloured by its state in your Jiten
 - [mpv](https://mpv.io/)
 - A [Jiten](https://jiten.moe) account and API key
 - ffmpeg, for audio and clip mining. JitenMPV can download it for you.
-- Windows, Linux or macOS. On Linux the dictionary popup needs an X11 session; under Wayland use XWayland.
+- Windows, Linux or macOS. On Linux the dictionary popup needs X11/XWayland.
+
+On a Wayland desktop, add this to `~/.config/mpv/mpv.conf` and restart mpv:
+
+```ini
+gpu-context=x11vk,x11egl
+```
 
 ## Installation
 
