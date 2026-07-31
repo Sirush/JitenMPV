@@ -9,21 +9,22 @@ public sealed record MediaTimebase(
     int? SubtitleTrackIndex,
     string? ExternalSubtitlePath,
     double SubDelay,
+    double SubSpeed,
     double AudioDelay,
     double DemuxerStartTime,
     double Duration,
     bool IsSeekableFile)
 {
     /// <summary>
-    /// True when the subtitle range came from the parsed subtitle file rather than from mpv's
-    /// sub-start/sub-end. File timestamps predate --sub-delay, so that shift still has to be applied.
+    /// Input time for a subtitle boundary. Every subtitle timestamp is the subtitle's own -
+    /// mpv's sub-start/sub-end report the file's timings unretimed, exactly as the pre-parsed cue
+    /// list holds them - so both need the shift mpv applies when it displays them.
     /// </summary>
-    public bool RangeIsFileTime { get; init; }
+    public double SubtitleToVideoTime(double subTime) => subTime * SubSpeed + SubDelay;
 
-    /// Input time for a subtitle boundary. mpv reports sub-start/sub-end on the display timeline
-    /// with sub-delay already folded in; a cue read from the subtitle file has not been shifted yet.
-    public double SubtitleToVideoTime(double subTime)
-        => RangeIsFileTime ? subTime + SubDelay : subTime;
+    /// The subtitle timestamp mpv is displaying at a playback moment, for finding the line being
+    /// watched in a cue list that is stored on the subtitle's own clock.
+    public double VideoToSubtitleTime(double videoTime) => (videoTime - SubDelay) / SubSpeed;
 
     /// Input time on the audio stream. --audio-delay shifts audio playback later, so the sample
     /// heard at a given display moment sits that much earlier in the file.

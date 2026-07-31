@@ -73,7 +73,7 @@ public sealed class ScreenshotCapture(
         // Original burn-in and the midpoint source both need a decode ffmpeg controls; a window
         // capture cannot be seeked, so Colored + midpoint falls back to the video frame.
         var seek = request.Source == MediaImageSource.SubtitleMidpoint
-            ? (request.SubtitleStart + request.SubtitleEnd) / 2
+            ? request.Timebase.SubtitleToVideoTime((request.SubtitleStart + request.SubtitleEnd) / 2)
             : request.Timebase.PlaybackToVideoTime(request.PlaybackPosition);
 
         var frame = await FfmpegFrameAsync(request, request.Timebase.Clamp(seek), burnWanted, ct);

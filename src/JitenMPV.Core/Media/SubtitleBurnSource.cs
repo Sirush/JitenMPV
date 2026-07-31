@@ -2,8 +2,8 @@ using Microsoft.Extensions.Logging;
 
 namespace JitenMPV.Core.Media;
 
-/// Produces the <c>subtitles=</c> filtergraph fragment libass renders from, resolved once per
-/// capture and shared by the still and the animation so both burn identically.
+/// Produces the filtergraph fragment libass renders from, resolved once per capture and shared by
+/// the still and the animation so both burn identically.
 public sealed class SubtitleBurnSource(FfmpegRunner ffmpeg, MediaTempFiles temp, ILogger logger)
 {
     private static readonly TimeSpan ExtractTimeout = TimeSpan.FromMinutes(2);
@@ -16,7 +16,10 @@ public sealed class SubtitleBurnSource(FfmpegRunner ffmpeg, MediaTempFiles temp,
         if (_attempted) return _resolved;
         _attempted = true;
 
-        _resolved = await BuildAsync(timebase, ct);
+        if (await BuildAsync(timebase, ct) is not { } subtitles) return null;
+
+        var shift = FfmpegFilters.SubtitleTimebaseShift(timebase.SubDelay, timebase.SubSpeed);
+        _resolved = shift is null ? subtitles : $"{shift},{subtitles}";
         return _resolved;
     }
 

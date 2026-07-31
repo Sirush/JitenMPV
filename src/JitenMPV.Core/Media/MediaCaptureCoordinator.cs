@@ -314,21 +314,28 @@ public sealed class MediaCaptureCoordinator(
         }
     }
 
+    /// The range is returned on the subtitle's own clock, which is what both sources speak: the
+    /// pre-parsed cue list holds the file's timings, and so does mpv's sub-start/sub-end. Mapping it
+    /// onto the video and audio streams is the timebase's job.
     private (MediaTimebase, double, double) ResolveRange(MpvCaptureProps props, string? subtitleText)
     {
-        // The subtitle file's own timestamps are immune to sub-delay, so they are preferred over
-        // mpv's reported range whenever pre-parsing has loaded them.
+        var timebase = props.ToTimebase();
+
+        // The playhead has to come back out of the display timeline before it can find anything in
+        // a cue list stored on the subtitle's own: on a retimed track the two are seconds apart.
+        var playhead = timebase.VideoToSubtitleTime(props.TimePos);
+
+        // Preferred over mpv's range because it covers the whole file rather than what has been
+        // demuxed, and carries the cue text that proves the right line was found.
         if (subtitleText is not null && timeline.IsLoaded
-            && timeline.At(TimeSpan.FromSeconds(props.TimePos)) is { } cue
+            && timeline.At(TimeSpan.FromSeconds(playhead)) is { } cue
             && string.Equals(Normalize(cue.Text), Normalize(subtitleText), StringComparison.Ordinal))
         {
-            var fileTimebase = props.ToTimebase() with { RangeIsFileTime = true };
-            return (fileTimebase, cue.Start.TotalSeconds, cue.End.TotalSeconds);
+            return (timebase, cue.Start.TotalSeconds, cue.End.TotalSeconds);
         }
 
-        var timebase = props.ToTimebase();
-        var start = props.SubStart ?? props.TimePos - FallbackHalfSpanSeconds;
-        var end = props.SubEnd ?? props.TimePos + FallbackHalfSpanSeconds;
+        var start = props.SubStart ?? playhead - FallbackHalfSpanSeconds;
+        var end = props.SubEnd ?? playhead + FallbackHalfSpanSeconds;
         return (timebase, start, end < start ? start + FallbackHalfSpanSeconds : end);
     }
 

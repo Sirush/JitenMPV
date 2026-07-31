@@ -11,6 +11,17 @@ public static class FfmpegFilters
         => $"scale=w='min({maxEdge},iw)':h='min({maxEdge},ih)'"
            + ":force_original_aspect_ratio=decrease:flags=lanczos";
 
+    /// <summary>
+    /// Presents each frame to a following <c>subtitles=</c> filter on the subtitle file's own clock,
+    /// so a burn draws the line mpv was drawing rather than whatever sits at that timestamp
+    /// unretimed. libass matches cues against frame PTS and the filter has no offset of its own, so
+    /// the frames are moved instead. Null when the track is not retimed and nothing has to move.
+    /// </summary>
+    public static string? SubtitleTimebaseShift(double subDelay, double subSpeed)
+        => subDelay == 0 && subSpeed == 1
+            ? null
+            : $"setpts=(PTS-({Seconds(subDelay)})/TB)/({Seconds(subSpeed)})";
+
     /// The stderr signature of an ffmpeg built without libass, so the fallback latches instead of
     /// retrying a filter that can never load.
     public static bool IsMissingSubtitlesFilter(string stderr)

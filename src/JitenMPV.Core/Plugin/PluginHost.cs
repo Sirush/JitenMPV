@@ -77,6 +77,7 @@ public sealed class PluginHost(
     public void PausePlayback()
     {
         if (_ipcClient is null) return;
+        _autopause?.SuspendRelease();
         _ = TaskHelper.RunSafe(async () =>
         {
             var paused = await _ipcClient.GetPropertyAsync<bool>("pause", CancellationToken.None);
@@ -88,10 +89,17 @@ public sealed class PluginHost(
 
     public void ResumePlayback()
     {
-        if (_ipcClient is null || _wasPausedBeforeSettings) return;
+        var ipc = _ipcClient;
+        if (ipc is null) return;
+
+        var autopause = _autopause;
         _ = TaskHelper.RunSafe(async () =>
         {
-            await _ipcClient.SetPropertyAsync("pause", false, CancellationToken.None);
+            if (!_wasPausedBeforeSettings)
+                await ipc.SetPropertyAsync("pause", false, CancellationToken.None);
+
+            if (autopause is not null)
+                await autopause.ResumeReleaseAsync(ipc, CancellationToken.None);
         }, logger, "Resume playback");
     }
 

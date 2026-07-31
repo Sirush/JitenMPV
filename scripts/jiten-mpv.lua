@@ -143,8 +143,11 @@ local function loop_arm()
     local a = mp.get_property_number("sub-start")
     local b = mp.get_property_number("sub-end")
     if not a or not b or b <= a then return end
-    mp.set_property_number("ab-loop-a", a)
-    mp.set_property_number("ab-loop-b", b)
+    local delay = mp.get_property_number("sub-delay") or 0
+    local speed = mp.get_property_number("sub-speed") or 1
+    if speed <= 0 then speed = 1 end
+    mp.set_property_number("ab-loop-a", a * speed + delay)
+    mp.set_property_number("ab-loop-b", b * speed + delay)
 end
 
 local function loop_clear()

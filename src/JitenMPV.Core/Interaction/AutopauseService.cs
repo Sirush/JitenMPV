@@ -18,6 +18,7 @@ public sealed class AutopauseService(PluginSettings settings, ILogger logger)
     private bool _wasAlreadyPaused;
     private bool _isHovering;
     private CancellationTokenSource? _delayCts;
+    private int _releaseHolds;
 
     public async Task OnHoverEnterAsync(MpvIpcClient ipc, CancellationToken ct)
     {
@@ -94,16 +95,55 @@ public sealed class AutopauseService(PluginSettings settings, ILogger logger)
         {
             _isHovering = false;
             TaskHelper.CancelAndDispose(ref _delayCts);
-
-            if (!_isPausedByUs || _wasAlreadyPaused) return;
-
-            await ipc.SetPropertyAsync("pause", false, CancellationToken.None);
-            _isPausedByUs = false;
+            await ReleaseIfOwnedAsync(ipc);
         }
         finally
         {
             _stateLock.Release();
         }
+    }
+
+    /// <summary>
+    /// Suspends the release, not the pause: while another window owns playback - the mining review,
+    /// the settings window - a hover ending underneath it must not hand the video back. The pause
+    /// stays this service's to release once the hold lifts.
+    /// </summary>
+    public void SuspendRelease() => Interlocked.Increment(ref _releaseHolds);
+
+    /// <summary>
+    /// Lifts one hold and releases the pause if the hover it was covering ended meanwhile, so a
+    /// window that took playback over gives it back the way it found it. Tolerates an unpaired
+    /// call: a stray release must not drive the count below zero, where it would swallow the next
+    /// genuine hold.
+    /// </summary>
+    public async Task ResumeReleaseAsync(MpvIpcClient ipc, CancellationToken ct)
+    {
+        int held;
+        while ((held = Volatile.Read(ref _releaseHolds)) > 0
+               && Interlocked.CompareExchange(ref _releaseHolds, held - 1, held) != held)
+        {
+        }
+
+        await _stateLock.WaitAsync(ct);
+        try
+        {
+            if (!_isHovering)
+                await ReleaseIfOwnedAsync(ipc);
+        }
+        finally
+        {
+            _stateLock.Release();
+        }
+    }
+
+    /// Caller holds <see cref="_stateLock"/>.
+    private async Task ReleaseIfOwnedAsync(MpvIpcClient ipc)
+    {
+        if (Volatile.Read(ref _releaseHolds) > 0) return;
+        if (!_isPausedByUs || _wasAlreadyPaused) return;
+
+        await ipc.SetPropertyAsync("pause", false, CancellationToken.None);
+        _isPausedByUs = false;
     }
 
     /// <summary>
