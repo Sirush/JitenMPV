@@ -637,8 +637,15 @@ local function initialize()
     end)
 end
 
+-- Addressed to the plugin this script started, not broadcast: a second plugin process on the same
+-- mpv - two windows sharing an input-ipc-server, a stale instance - would otherwise act on every
+-- event too, mining twice off one keypress. Broadcast only until a plugin has reported its name.
 local function send(...)
-    mp.commandv("script-message", ...)
+    if bar.client then
+        mp.commandv("script-message-to", bar.client, ...)
+    else
+        mp.commandv("script-message", ...)
+    end
 end
 
 local function mouse_left_down(mx, my)

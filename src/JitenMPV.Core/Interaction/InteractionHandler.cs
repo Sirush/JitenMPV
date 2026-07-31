@@ -536,7 +536,7 @@ public sealed class InteractionHandler : IDisposable
 
         // Silent when no deck is configured: auto-mining must not nag on every grade.
         if (action.IsReview() && _settings.MiningAutoOnReview
-            && _mining.ResolveTargetDeck() is { } autoDeck)
+            && _mining.ResolveDeckWithoutPicker() is { } autoDeck)
         {
             await _mining.MineAsync(wordId, readingIndex, autoDeck, _currentText, _ipc, ct,
                 reportSkip: false);

@@ -50,7 +50,10 @@ REM %%APPDATA%%. Letting the script spawn it, rather than starting the plugin he
 REM plugin_autostart and plugin_start_key under test; starting it by hand connects over IPC
 REM regardless of either setting and makes them look broken.
 set "JITEN_MPV_EXE=%EXE%"
-start "" mpv --input-ipc-server=%PIPE% --script="%ROOT%scripts\jiten-mpv.lua" "%~1"
+REM --load-scripts=no keeps the installed copy in %%APPDATA%%\mpv\scripts out of the run. Loaded
+REM alongside the repo copy it is a second script instance, spawning a second plugin process on the
+REM same pipe, and every broadcast event is then acted on twice.
+start "" mpv --load-scripts=no --input-ipc-server=%PIPE% --script="%ROOT%scripts\jiten-mpv.lua" "%~1"
 
 echo Streaming plugin log. Close mpv or press Ctrl+C to stop.
 echo (autostart off? the log stays on the previous run until you press the start key.)

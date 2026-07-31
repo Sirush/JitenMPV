@@ -112,13 +112,21 @@ public sealed class MiningService(
         return s.MiningStudyDeckId is > 0 ? s.MiningStudyDeckId : null;
     }
 
+    /// The deck for callers that cannot offer the popup's picker — a keybind, a double click, a
+    /// mine chained off a grade. MiningToStudyDeck only governs whether the popup asks, so the
+    /// selected list is still the target for everything that has no way of asking.
+    public int? ResolveDeckWithoutPicker()
+        => ResolveTargetDeck() ?? (_settings.MiningStudyDeckId is > 0 ? _settings.MiningStudyDeckId : null);
+
     /// Mines into the configured deck, reporting to the OSD when none is set.
     public async Task<bool> MineWithConfiguredDeckAsync(
         int wordId, byte readingIndex, string? subtitleText, MpvIpcClient ipc, CancellationToken ct)
     {
-        if (ResolveTargetDeck() is not { } deckId)
+        if (!_settings.MiningEnabled) return false;
+
+        if (ResolveDeckWithoutPicker() is not { } deckId)
         {
-            await status.ShowAsync(ipc, "No target word list deck selected (Ctrl+J > Features > Mining > Target word list)", 2500, ct);
+            await status.ShowAsync(ipc, "No target word list selected (Ctrl+J > Features > Mining > Target word list)", 2500, ct);
             return false;
         }
         return await MineAsync(wordId, readingIndex, deckId, subtitleText, ipc, ct);

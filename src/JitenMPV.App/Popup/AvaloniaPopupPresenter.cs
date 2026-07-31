@@ -25,6 +25,7 @@ public sealed class AvaloniaPopupPresenter : IPopupPresenter
     private int _offsetPx = 60;
     private double _lastFontScale = -1;
     private int _lastMaxWidth = -1;
+    private bool _pointerInside;
     private volatile PopupWindowContext _windowContext = PopupWindowContext.Empty;
     private bool _repositionQueued;
 
@@ -88,6 +89,7 @@ public sealed class AvaloniaPopupPresenter : IPopupPresenter
         return Dispatcher.UIThread.InvokeAsync(() =>
         {
             _isVisible = false;
+            _pointerInside = false;
             _viewModel?.CloseDeckPicker();
             _window?.Hide();
         }).GetTask();
@@ -104,9 +106,21 @@ public sealed class AvaloniaPopupPresenter : IPopupPresenter
         _window = new DictionaryPopupWindow { DataContext = _viewModel };
         _lastFontScale = -1;
 
-        _window.PointerEntered += (_, _) => MouseEntered?.Invoke();
-        _window.PointerExited += (_, _) => MouseLeft?.Invoke();
-        _window.SizeChanged += (_, _) => QueuePositionWindow();
+        _window.PointerEntered += (_, _) =>
+        {
+            _pointerInside = true;
+            MouseEntered?.Invoke();
+        };
+        _window.PointerExited += (_, _) =>
+        {
+            _pointerInside = false;
+            MouseLeft?.Invoke();
+        };
+
+        _window.SizeChanged += (_, _) =>
+        {
+            if (!_pointerInside) QueuePositionWindow();
+        };
     }
 
     private void QueuePositionWindow()
