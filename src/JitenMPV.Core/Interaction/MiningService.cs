@@ -112,7 +112,7 @@ public sealed class MiningService(
     {
         if (ResolveTargetDeck() is not { } deckId)
         {
-            await status.ShowAsync(ipc, "No mining deck selected (Ctrl+J - Mining tab)", 2500, ct);
+            await status.ShowAsync(ipc, "No target word list deck selected (Ctrl+J > Features > Mining > Target word list)", 2500, ct);
             return false;
         }
         return await MineAsync(wordId, readingIndex, deckId, subtitleText, ipc, ct);
