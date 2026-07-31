@@ -86,18 +86,18 @@ local was_in_zone = false
 local osd_width, osd_height = 1280, 720
 local mouse_zone = 0.65
 
--- Union of the plugin's word hit regions, in its 720-line overlay units. Clicks outside it run
--- mpv's own binding immediately instead of round-tripping through the plugin, which also keeps
--- them alive while the plugin is busy. Gating starts only once a bounds message has arrived, so
--- a plugin build that never sends one keeps the forward-everything behaviour.
+-- Union of the plugin's word hit regions, in its 720-line overlay units. It bounds the mouse area
+-- of this script's binding section, so clicks outside it never reach here and stay alive while the
+-- plugin is busy. Gating starts only once a bounds message has arrived, so a plugin build that
+-- never sends one keeps the forward-everything behaviour.
 local OVERLAY_RES_Y = 720
 local hit_bounds = nil
 local hit_bounds_supported = false
-local popup_visible = false
+local popup_click_dismiss = false
 local click_forwarded = false
 
 local function click_targets_plugin(mx, my)
-    if popup_visible then return true end
+    if popup_click_dismiss then return true end
     if not hit_bounds_supported then return true end
     if not hit_bounds or osd_height <= 0 then return false end
     local scale = OVERLAY_RES_Y / osd_height
@@ -120,8 +120,8 @@ local function resolve_fallbacks()
     local best = {}
     for _, b in ipairs(bindings) do
         local prio = b.priority or 0
-        -- Script-owned bindings (the OSC seek bar) sit in sections that are only enabled while the
-        -- pointer is over them, so replaying their commands from here would fire them out of context.
+        -- Script-owned bindings are skipped: each is gated on its own section's mouse area, which
+        -- replaying the command from here would bypass.
         if owned_keys[b.key] and not b.owner and b.cmd and b.cmd ~= "" and prio >= 0
            and (not best[b.key] or prio >= best[b.key]) then
             best[b.key] = prio
@@ -354,6 +354,49 @@ local function bar_measure()
     bar.geometry = key
 end
 
+local forced_section = "input_forced_" .. mp.get_script_name()
+
+-- mpv gives a mouse button to the binding in the section enabled last, and its Lua layer re-enables
+-- this script's sections on every key binding change, so a forced MBTN_LEFT ends up above the OSC's
+-- the first time the popup toggles its keybinds. Restricting the section to what this script draws
+-- makes mpv skip it for clicks elsewhere, which leaves the seek bar working whatever the order is.
+local function apply_mouse_area()
+    if popup_click_dismiss or not hit_bounds_supported or osd_height <= 0 then
+        mp.set_mouse_area(0, 0, osd_width, osd_height, forced_section)
+        return
+    end
+
+    local x0, y0, x1, y1
+    local function add(ax0, ay0, ax1, ay1)
+        x0 = x0 and math.min(x0, ax0) or ax0
+        y0 = y0 and math.min(y0, ay0) or ay0
+        x1 = x1 and math.max(x1, ax1) or ax1
+        y1 = y1 and math.max(y1, ay1) or ay1
+    end
+
+    if hit_bounds then
+        local scale = osd_height / OVERLAY_RES_Y
+        add(hit_bounds.x0 * scale, hit_bounds.y0 * scale,
+            hit_bounds.x1 * scale, hit_bounds.y1 * scale)
+    end
+
+    -- Rects, not the faded-in bar: the pointer has to be able to reach a button before the movement
+    -- that reveals it has been handled.
+    if bar_available() then
+        bar_measure()
+        for _, b in ipairs(buttons) do
+            if b.rect and b.available() then add(b.rect.x0, b.rect.y0, b.rect.x1, b.rect.y1) end
+        end
+    end
+
+    if not x0 then
+        mp.set_mouse_area(0, 0, 0, 0, forced_section)
+    else
+        mp.set_mouse_area(math.floor(x0), math.floor(y0),
+                          math.ceil(x1), math.ceil(y1), forced_section)
+    end
+end
+
 local function bar_render()
     if not bar.overlay then return end
 
@@ -544,11 +587,12 @@ local function set_plugin_client(name)
     if not connected then
         hit_bounds = nil
         hit_bounds_supported = false
-        popup_visible = false
+        popup_click_dismiss = false
     end
     set_nav_keys_bound(connected)
     refresh_subtitle_toggle_bindings()
     bar_refresh()
+    apply_mouse_area()
 end
 
 local function initialize()
@@ -735,6 +779,7 @@ mp.add_key_binding(startup.start_key, "jiten-mpv-toggle", initialize)
 resolve_fallbacks()
 mp.add_forced_key_binding("MBTN_LEFT", "jiten-mouse-left", on_mouse_left, { complex = true })
 mp.add_forced_key_binding("MBTN_LEFT_DBL", "jiten-mouse-dbl", on_double_click)
+apply_mouse_area()
 
 mp.register_script_message("jiten-passthrough-click", function() run_fallback("MBTN_LEFT") end)
 mp.register_script_message("jiten-passthrough-dbl", function() run_fallback("MBTN_LEFT_DBL") end)
@@ -743,6 +788,7 @@ mp.observe_property("osd-width", "number", function(_, val)
     if val and val > 0 and val ~= osd_width then
         osd_width = val
         bar_refresh(true)
+        apply_mouse_area()
     end
 end)
 
@@ -750,6 +796,7 @@ mp.observe_property("osd-height", "number", function(_, val)
     if val and val > 0 and val ~= osd_height then
         osd_height = val
         bar_refresh(true)
+        apply_mouse_area()
     end
 end)
 
@@ -759,6 +806,7 @@ mp.observe_property("sid", "native", function(_, val)
     if has_subs ~= bar.has_subs then
         bar.has_subs = has_subs
         bar_refresh()
+        apply_mouse_area()
     end
 end)
 
@@ -797,10 +845,16 @@ mp.register_script_message("jiten-set-hit-bounds", function(x0, y0, x1, y1)
     else
         hit_bounds = nil
     end
+    apply_mouse_area()
 end)
 
-mp.register_script_message("jiten-popup-state", function(state)
-    popup_visible = state == "1"
+-- Widening the claim to the whole window takes the seek bar with it for as long as the popup is up,
+-- so it is done only for a popup that has no other way to close. A plugin too old to send the flag
+-- keeps the previous claim-everything behaviour: a popup that cannot be dismissed is worse than a
+-- seek bar that is briefly unavailable.
+mp.register_script_message("jiten-popup-state", function(state, click_dismiss)
+    popup_click_dismiss = state == "1" and click_dismiss ~= "0"
+    apply_mouse_area()
 end)
 
 mp.register_script_message("jiten-set-client", function(name)
@@ -811,6 +865,7 @@ mp.register_script_message("jiten-set-buttons", function(settings_value, nav_val
     bar.settings_enabled = settings_value == "1"
     bar.nav_enabled = nav_value == "1"
     bar_refresh()
+    apply_mouse_area()
 end)
 
 -- Keybind system
@@ -839,6 +894,7 @@ mp.register_script_message("jiten-enable-keybinds", function()
             send("jiten-keybind-action", action)
         end)
     end
+    apply_mouse_area()
 end)
 
 mp.register_script_message("jiten-disable-keybinds", function()
@@ -847,6 +903,7 @@ mp.register_script_message("jiten-disable-keybinds", function()
     for action, _ in pairs(keybind_config) do
         mp.remove_key_binding("jiten-kb-" .. action)
     end
+    apply_mouse_area()
 end)
 
 enable_tracking()

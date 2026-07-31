@@ -97,14 +97,33 @@ sealed class Program
         return index >= 0 && index + 1 < args.Length ? args[index + 1] : null;
     }
 
+    private static StreamWriter? OpenLog(string dir)
+    {
+        for (var attempt = 1; attempt <= 8; attempt++)
+        {
+            var name = attempt == 1 ? "debug.log" : $"debug-{attempt}.log";
+            try
+            {
+                return new StreamWriter(Path.Combine(dir, name), append: false) { AutoFlush = true };
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            {
+            }
+        }
+
+        return null;
+    }
+
     private static void RunPlugin(string[] args)
     {
         Directory.CreateDirectory(SettingsManager.ConfigDir);
-        var logFile = Path.Combine(SettingsManager.ConfigDir, "debug.log");
-        using var logWriter = new StreamWriter(logFile, append: false) { AutoFlush = true };
+        using var logWriter = OpenLog(SettingsManager.ConfigDir);
 
-        Console.SetOut(logWriter);
-        Console.SetError(logWriter);
+        if (logWriter is not null)
+        {
+            Console.SetOut(logWriter);
+            Console.SetError(logWriter);
+        }
 
         var preloadSettings = SettingsManager.LoadAsync().GetAwaiter().GetResult();
         var logLevel = preloadSettings.DebugLogging ? LogLevel.Debug : LogLevel.Information;

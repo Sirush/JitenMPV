@@ -364,10 +364,15 @@ public sealed class PluginHost(
             {
                 _ = RunSafe(async () =>
                 {
-                    // While a popup is up, the Lua side forwards every click so a click anywhere
-                    // can dismiss it; outside-the-subtitle clicks are otherwise short-circuited.
+                    // Claiming every click is what lets one dismiss a popup that nothing else will
+                    // close, but it also takes clicks the OSC needs, so it is asked for only when
+                    // the popup has no other way out. A click-triggered popup ignores pointer moves
+                    // and so never releases on its own; a hovered one always does, delayed or not.
+                    var clickToDismiss = visible
+                        && _settings?.PopupTrigger == PopupTriggerMode.Click;
                     await ipcClient.SendScriptMessageAsync(
-                        LuaScriptName, "jiten-popup-state", visible ? "1" : "0", ct);
+                        LuaScriptName, "jiten-popup-state",
+                        visible ? "1" : "0", clickToDismiss ? "1" : "0", ct);
 
                     if (visible)
                         await keybindManager.EnableKeybindsAsync(ct);
