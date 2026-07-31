@@ -19,9 +19,11 @@ public sealed class PreParseService(
 {
     private static readonly TimeSpan ExtractTimeout = TimeSpan.FromMinutes(2);
 
-    public async Task PreParseFileAsync(string subtitleFilePath, CancellationToken ct)
+    /// <param name="parseTexts">False loads the cue timeline without the API batch parse, which is
+    /// what subtitle navigation needs when pre-parsing itself is switched off.</param>
+    public async Task PreParseFileAsync(string subtitleFilePath, bool parseTexts, CancellationToken ct)
     {
-        logger.LogInformation("Pre-parsing external subtitle file: {Path}", subtitleFilePath);
+        logger.LogInformation("Reading external subtitle file: {Path}", subtitleFilePath);
 
         List<SubtitleCue> cues;
         try
@@ -36,19 +38,23 @@ public sealed class PreParseService(
 
         logger.LogInformation("Parsed {Count} cues from file", cues.Count);
         timeline?.Load(cues);
-        await BatchParseTextsAsync(ExtractUniqueTexts(cues), ct);
+        if (parseTexts)
+            await BatchParseTextsAsync(ExtractUniqueTexts(cues), ct);
     }
 
-    public async Task PreParseEmbeddedAsync(MpvIpcClient ipc, CancellationToken ct)
+    /// <param name="parseTexts">See <see cref="PreParseFileAsync"/>.</param>
+    public async Task PreParseEmbeddedAsync(MpvIpcClient ipc, bool parseTexts, CancellationToken ct)
     {
         var texts = await TryFfmpegExtract(ipc, ct);
         if (texts is not null)
         {
-            await BatchParseTextsAsync(texts, ct);
+            if (parseTexts)
+                await BatchParseTextsAsync(texts, ct);
             return;
         }
 
-        logger.LogInformation("No pre-parse method available, using on-demand parsing");
+        if (parseTexts)
+            logger.LogInformation("No pre-parse method available, using on-demand parsing");
     }
 
     private async Task<List<string>?> TryFfmpegExtract(MpvIpcClient ipc, CancellationToken ct)

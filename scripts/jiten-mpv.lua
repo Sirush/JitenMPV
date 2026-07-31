@@ -161,9 +161,11 @@ local function loop_toggle()
     bar_refresh()
 end
 
+local nav_step
+
 local nav_actions = {
-    prev_sub = function() mp.commandv("sub-seek", "-1") end,
-    next_sub = function() mp.commandv("sub-seek", "1") end,
+    prev_sub = function() nav_step(-1) end,
+    next_sub = function() nav_step(1) end,
     loop_sub = loop_toggle
 }
 
@@ -221,6 +223,14 @@ local bar = {
     hovered = nil,
     press_consumed = false
 }
+
+function nav_step(delta)
+    if bar.client then
+        mp.commandv("script-message-to", bar.client, "jiten-nav-sub", tostring(delta))
+    else
+        mp.commandv("sub-seek", tostring(delta))
+    end
+end
 
 -- Every button requires a connected plugin, identified by the IPC client name it reports. Subtitle
 -- stepping and looping are built from plain mpv commands and would work on their own, but a user
@@ -584,34 +594,46 @@ local function send(...)
     mp.commandv("script-message", ...)
 end
 
+local function mouse_left_down(mx, my)
+    -- Reassigned on every press: focus moving to the settings window can eat the release that
+    -- would otherwise clear it, and a stale flag would swallow the next click's release.
+    local hit = bar_hit(mx, my)
+    bar.press_consumed = hit ~= nil
+    if hit then
+        hit.action()
+        return
+    end
+    if not plugin_started or not click_targets_plugin(mx, my) then
+        click_forwarded = false
+        run_fallback("MBTN_LEFT")
+        return
+    end
+    click_forwarded = true
+    send("jiten-mouse-left-press", tostring(mx), tostring(my))
+end
+
+local function mouse_left_up(mx, my)
+    if bar.press_consumed then
+        bar.press_consumed = false
+        return
+    end
+    if plugin_started and click_forwarded then
+        click_forwarded = false
+        send("jiten-mouse-left-release", tostring(mx), tostring(my))
+    end
+end
+
+-- mpv reports a button it never saw held as one "press" rather than a down/up pair, which is what
+-- the mouse command and touch input produce. Running both halves keeps such a click from vanishing.
 local function on_mouse_left(tbl)
     local mx, my = mp.get_mouse_pos()
+    local event = tbl.event
 
-    if tbl.event == "down" then
-        -- Reassigned on every press: focus moving to the settings window can eat the release that
-        -- would otherwise clear it, and a stale flag would swallow the next click's release.
-        local hit = bar_hit(mx, my)
-        bar.press_consumed = hit ~= nil
-        if hit then
-            hit.action()
-            return
-        end
-        if not plugin_started or not click_targets_plugin(mx, my) then
-            click_forwarded = false
-            run_fallback("MBTN_LEFT")
-            return
-        end
-        click_forwarded = true
-        send("jiten-mouse-left-press", tostring(mx), tostring(my))
-    elseif tbl.event == "up" then
-        if bar.press_consumed then
-            bar.press_consumed = false
-            return
-        end
-        if plugin_started and click_forwarded then
-            click_forwarded = false
-            send("jiten-mouse-left-release", tostring(mx), tostring(my))
-        end
+    if event == "down" or event == "press" then
+        mouse_left_down(mx, my)
+    end
+    if event == "up" or event == "press" then
+        mouse_left_up(mx, my)
     end
 end
 
@@ -635,7 +657,8 @@ local function handle_mouse(mx, my, hover)
     -- hover false means the pointer left the window, which can happen without a final coordinate
     -- change, so it is handled before the movement dedup.
     if hover == false then
-        last_mouse_x, last_mouse_y = mx, my
+        last_mouse_x, last_mouse_y = -1, -1
+        bar_hide(false)
         if plugin_started and was_in_zone then
             was_in_zone = false
             send("jiten-mouse-leave", "0", "0")

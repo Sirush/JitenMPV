@@ -28,6 +28,7 @@ public sealed class PluginHost(
     internal const int HitboxDebugOverlayId = 3;
     internal const string OpenSettingsMessage = "jiten-open-settings";
     internal const string ToggleSubtitlesMessage = "jiten-toggle-subtitles";
+    internal const string NavigateSubtitleMessage = "jiten-nav-sub";
     private const string LuaScriptName = "jiten_mpv";
 
     /// mpv reports the new track before it has finished loading it, and a file change fires several
@@ -430,14 +431,13 @@ public sealed class PluginHost(
                     geometryOnly: true);
             };
 
-            if (settings.PreparseEnabled)
+            // Tracked whether or not pre-parsing is on: the cue timeline it builds is also what
+            // subtitle navigation steps through, and that has to work either way.
+            ipcClient.PropertyChanged += (name, _) =>
             {
-                ipcClient.PropertyChanged += (name, _) =>
-                {
-                    if (name is "sid" or "path")
-                        ReloadSubtitleSource(ipcClient, preParser, timeline, ct);
-                };
-            }
+                if (name is "sid" or "path")
+                    ReloadSubtitleSource(ipcClient, preParser, timeline, ct);
+            };
 
             ipcClient.ScriptMessageReceived += (name, args) =>
             {
@@ -449,6 +449,11 @@ public sealed class PluginHost(
                 else if (name == ToggleSubtitlesMessage)
                 {
                     _ = RunSafe(() => ToggleSubtitlesAsync(ipcClient, ct));
+                }
+                else if (name == NavigateSubtitleMessage && args.Length >= 1)
+                {
+                    if (int.TryParse(args[0], out var delta))
+                        _ = RunSafe(() => NavigateSubtitleAsync(ipcClient, timeline, delta, ct));
                 }
                 else if (name == "jiten-keybind-action" && args.Length >= 1)
                 {
@@ -470,11 +475,8 @@ public sealed class PluginHost(
             await ipcClient.ObservePropertyAsync("display-names", 7, ct);
             await ipcClient.ObservePropertyAsync("sub-visibility", 8, ct);
 
-            if (settings.PreparseEnabled)
-            {
-                await ipcClient.ObservePropertyAsync("sid", 4, ct);
-                await ipcClient.ObservePropertyAsync("path", 5, ct);
-            }
+            await ipcClient.ObservePropertyAsync("sid", 4, ct);
+            await ipcClient.ObservePropertyAsync("path", 5, ct);
 
             var widthTask = ipcClient.GetPropertyAsync<int>("osd-width", ct);
             var heightTask = ipcClient.GetPropertyAsync<int>("osd-height", ct);
@@ -509,8 +511,7 @@ public sealed class PluginHost(
             plusService.StartPeriodicRefresh(ct);
             MediaTempFiles.SweepStale(logger);
 
-            if (settings.PreparseEnabled)
-                ReloadSubtitleSource(ipcClient, preParser, timeline, ct);
+            ReloadSubtitleSource(ipcClient, preParser, timeline, ct);
 
             _ = RunSafe(() => ShowStartupNoticesAsync(ipcClient, settings, ct));
 
@@ -587,10 +588,44 @@ public sealed class PluginHost(
         }
         catch { }
 
+        var parseTexts = _settings?.PreparseEnabled ?? false;
         if (!string.IsNullOrEmpty(subFile))
-            await preParser.PreParseFileAsync(subFile, ct);
+            await preParser.PreParseFileAsync(subFile, parseTexts, ct);
         else
-            await preParser.PreParseEmbeddedAsync(ipc, ct);
+            await preParser.PreParseEmbeddedAsync(ipc, parseTexts, ct);
+    }
+
+    /// Steps the requested number of subtitles using the pre-parsed cue list, which covers the whole
+    /// file rather than only what mpv has demuxed. Without a timeline there is nothing better than
+    /// mpv's own sub-seek, which cannot reach a line it has not read yet.
+    private async Task NavigateSubtitleAsync(
+        MpvIpcClient ipc, SubtitleTimeline timeline, int delta, CancellationToken ct)
+    {
+        if (delta == 0) return;
+
+        if (!timeline.IsLoaded)
+        {
+            await ipc.SubSeekAsync(delta, ct);
+            return;
+        }
+
+        if (await ipc.GetPropertyAsync<double?>("time-pos", ct) is not { } timePos) return;
+
+        // Cue timings are the subtitle file's own; mpv shows a cue at file time * sub-speed +
+        // sub-delay, so a retimed track has to be mapped both ways around the lookup. Read per nav
+        // rather than cached: both are live properties the user can change mid-playback.
+        var delay = await ipc.GetPropertyAsync<double?>("sub-delay", ct) ?? 0;
+        var speed = await ipc.GetPropertyAsync<double?>("sub-speed", ct) ?? 1;
+        if (speed <= 0) speed = 1;
+
+        var playhead = TimeSpan.FromSeconds((timePos - delay) / speed);
+        if (timeline.Step(playhead, delta) is not { } step)
+        {
+            logger.LogDebug("Subtitle nav {Delta} ran off the end of the timeline", delta);
+            return;
+        }
+
+        await ipc.SeekAbsoluteAsync(step.SeekTime.TotalSeconds * speed + delay, ct);
     }
 
     private static async Task SendNavKeysAsync(

@@ -128,6 +128,14 @@ public sealed class MpvIpcClient(string pipePath, ILogger logger) : IAsyncDispos
             ["data"] = ""
         }, ct);
 
+    public Task SeekAbsoluteAsync(double seconds, CancellationToken ct)
+        => SendCommandAsync(["seek", seconds, "absolute+exact"], ct);
+
+    /// mpv's own subtitle stepping. It only reaches events already demuxed, so prefer a timeline
+    /// seek where cue timings are known.
+    public Task SubSeekAsync(int skip, CancellationToken ct)
+        => SendCommandAsync(["sub-seek", skip], ct);
+
     public async Task RunAsync(CancellationToken ct)
     {
         await foreach (var line in _connection.ReadLinesAsync(ct))
