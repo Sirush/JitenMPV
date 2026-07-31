@@ -215,7 +215,13 @@ public sealed class InteractionHandler : IDisposable
         if (now - _lastMoveMs < DebounceMs) return;
         _lastMoveMs = now;
 
-        if (_currentEntry is null || _osd.Height <= 0) return;
+        // A line that ends under the pointer leaves nothing to hit-test, so a hover still holding
+        // the video paused has to be ended here: no later move can reach the code that would.
+        if (_currentEntry is null || _osd.Height <= 0)
+        {
+            await ReleaseHoverAsync(ct);
+            return;
+        }
 
         var hit = _hitTest.HitTest(mx, my, _osd.Width, _osd.Height);
         bool overPopup = _popup.IsVisible && _popup.IsMouseOverPopup;
@@ -255,22 +261,7 @@ public sealed class InteractionHandler : IDisposable
         else if (hit is null && !overPopup)
         {
             CancelPendingPopup();
-            await _autopause.OnHoverLeaveAsync(_ipc, ct);
-
-            if (_popup.IsVisible)
-            {
-                if (_settings.PopupAutoHide && _settings.PopupAutoHideDelayMs > 0)
-                {
-                    TaskHelper.CancelAndDispose(ref _autoHideCts);
-                    _autoHideCts = new CancellationTokenSource();
-                    var linked = CancellationTokenSource.CreateLinkedTokenSource(_autoHideCts.Token, ct);
-                    _ = HidePopupAfterDelayAsync(linked);
-                }
-                else
-                {
-                    await _popup.HideAsync(ct);
-                }
-            }
+            await ReleaseHoverAsync(ct);
         }
         else if (overPopup)
         {
@@ -281,20 +272,42 @@ public sealed class InteractionHandler : IDisposable
     private async Task HandleLeaveAsync(CancellationToken ct)
     {
         CancelPendingPopup();
-        TaskHelper.CancelAndDispose(ref _autoHideCts);
 
         if (StickyPopup && _popup.IsVisible) return;
 
-        if (_popup.IsVisible)
-            await _popup.HideAsync(ct);
+        if (!_popup.IsVisible)
+            TaskHelper.CancelAndDispose(ref _autoHideCts);
+
+        await ReleaseHoverAsync(ct);
 
         if (_currentEntry is not null)
             _blur.UpdateHover(null, _currentEntry);
 
-        await _autopause.OnHoverLeaveAsync(_ipc, ct);
-
         if (_currentText is not null && _blur.HasRevealed)
             await ReRenderSubtitleAsync(ct);
+    }
+
+    /// <summary>
+    /// Ends the hover the pointer has moved off, or defers that end for as long as the word's entry
+    /// is still on screen. The popup is a window of its own, so the pointer reaches it by leaving
+    /// mpv's: a leave means "arrived at the entry" as often as "gone", and letting playback resume
+    /// on either would carry the line the entry describes away mid-read.
+    /// </summary>
+    private async Task ReleaseHoverAsync(CancellationToken ct)
+    {
+        if (_popup.IsVisible)
+        {
+            if (_settings.PopupAutoHide && _settings.PopupAutoHideDelayMs > 0)
+            {
+                ArmAutoHide(ct);
+                return;
+            }
+
+            if (_popup.IsMouseOverPopup) return;
+            await _popup.HideAsync(ct);
+        }
+
+        await _autopause.OnHoverLeaveAsync(_ipc, ct);
     }
 
     /// A popup rendered clear of the subtitle puts a whole other line between itself and the word it
@@ -339,13 +352,29 @@ public sealed class InteractionHandler : IDisposable
         }
     }
 
+    private void ArmAutoHide(CancellationToken ct)
+    {
+        TaskHelper.CancelAndDispose(ref _autoHideCts);
+        _autoHideCts = new CancellationTokenSource();
+        var linked = CancellationTokenSource.CreateLinkedTokenSource(_autoHideCts.Token, ct);
+        _ = HidePopupAfterDelayAsync(linked);
+    }
+
     private async Task HidePopupAfterDelayAsync(CancellationTokenSource linkedCts)
     {
         try
         {
-            await Task.Delay(_settings.PopupAutoHideDelayMs, linkedCts.Token);
+            do
+            {
+                await Task.Delay(Math.Max(1, _settings.PopupAutoHideDelayMs), linkedCts.Token);
+            }
+            while (_popup.IsMouseOverPopup);
+
             if (_popup.IsVisible)
+            {
                 await _popup.HideAsync(linkedCts.Token);
+                await _autopause.OnHoverLeaveAsync(_ipc, linkedCts.Token);
+            }
         }
         catch (OperationCanceledException) { }
         finally { linkedCts.Dispose(); }

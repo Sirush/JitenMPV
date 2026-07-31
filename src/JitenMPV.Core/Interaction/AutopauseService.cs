@@ -106,6 +106,11 @@ public sealed class AutopauseService(PluginSettings settings, ILogger logger)
         }
     }
 
+    /// <summary>
+    /// Ends the hover a new subtitle line supersedes. A pause this service owns deliberately
+    /// outlives it: the line can change while the pause is still in flight, or under a seek, and
+    /// forgetting it there would strand mpv paused with nothing left that is allowed to resume it.
+    /// </summary>
     public async Task ResetAsync()
     {
         await _stateLock.WaitAsync();
@@ -113,8 +118,6 @@ public sealed class AutopauseService(PluginSettings settings, ILogger logger)
         {
             _isHovering = false;
             TaskHelper.CancelAndDispose(ref _delayCts);
-            _isPausedByUs = false;
-            _wasAlreadyPaused = false;
         }
         finally
         {
