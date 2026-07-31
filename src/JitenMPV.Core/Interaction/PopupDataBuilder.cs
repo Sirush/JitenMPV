@@ -90,7 +90,7 @@ public sealed class PopupDataBuilder(PluginSettings settings, MiningService mini
             ShowMine = showMine,
             IsMined = mining.IsInTargetList(word.WordId, word.ReadingIndex, word.StudyDeckIds),
             DeckOptions = showMine && mining.ResolveTargetDeck() is null
-                ? [..mining.Decks.Select(d => new DeckOption(d.UserStudyDeckId, d.Name))]
+                ? [..mining.WordListDecks.Select(d => new DeckOption(d.UserStudyDeckId, d.Name))]
                 : [],
             DeckMembership = settings.PopupShowDeckMembership
                 ? DeckMembership.Build(

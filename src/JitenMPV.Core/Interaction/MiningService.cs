@@ -20,6 +20,9 @@ public sealed class MiningService(
     private volatile PluginSettings _settings = settings;
     private volatile IReadOnlyList<StudyDeckListItem> _decks = [];
 
+    /// Word lists only for mining
+    private volatile IReadOnlyList<StudyDeckListItem> _wordListDecks = [];
+
     /// Ids of static word lists only. Media and frequency decks also appear in a word's
     /// studyDeckIds and would otherwise mark nearly every word as already mined.
     private volatile HashSet<int> _wordListIds = [];
@@ -30,7 +33,10 @@ public sealed class MiningService(
 
     public void UpdateSettings(PluginSettings newSettings) => _settings = newSettings;
 
+    /// Active decks for membership display only
     public IReadOnlyList<StudyDeckListItem> Decks => _decks;
+
+    public IReadOnlyList<StudyDeckListItem> WordListDecks => _wordListDecks;
 
     public bool IsMinedTo(int wordId, byte readingIndex, int deckId)
     {
@@ -82,15 +88,15 @@ public sealed class MiningService(
         try
         {
             var decks = await api.GetStudyDecksAsync(ct);
+            var wordLists = decks.Where(d => d.DeckType == StudyDeckType.StaticWordList).ToList();
             _decks = decks;
-            _wordListIds = [..decks
-                .Where(d => d.DeckType == StudyDeckType.StaticWordList)
-                .Select(d => d.UserStudyDeckId)];
+            _wordListDecks = wordLists;
+            _wordListIds = [..wordLists.Select(d => d.UserStudyDeckId)];
             if (media is not null)
-                media.DeckOptions = [..decks.Select(d => new MiningDeckOption(d.UserStudyDeckId, d.Name))];
+                media.DeckOptions = [..wordLists.Select(d => new MiningDeckOption(d.UserStudyDeckId, d.Name))];
 
             logger.LogInformation("Loaded {Count} study decks ({Lists} word lists)",
-                decks.Count, _wordListIds.Count);
+                decks.Count, wordLists.Count);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {

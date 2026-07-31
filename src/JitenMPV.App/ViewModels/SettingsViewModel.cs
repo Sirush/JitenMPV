@@ -929,14 +929,16 @@ public partial class SettingsViewModel : ViewModelBase
                 NullLogger<SettingsViewModel>.Instance);
             var decks = await client.GetStudyDecksAsync(CancellationToken.None);
 
+            var wordLists = decks.Where(d => d.DeckType == StudyDeckType.StaticWordList).ToList();
+
             // The selection is restored by id: the pre-load placeholder is a different instance.
             var previousId = SelectedStudyDeck?.DeckId;
             AvailableDecks.Clear();
-            foreach (var deck in decks)
+            foreach (var deck in wordLists)
                 AvailableDecks.Add(new StudyDeckOption(deck.UserStudyDeckId, deck.Name));
 
             SelectedStudyDeck = AvailableDecks.FirstOrDefault(d => d.DeckId == previousId);
-            DeckStatus = decks.Count == 0 ? "No word lists found" : $"{decks.Count} lists";
+            DeckStatus = wordLists.Count == 0 ? "No word lists found" : $"{wordLists.Count} lists";
         }
         catch (JitenApiKeyRejectedException)
         {
