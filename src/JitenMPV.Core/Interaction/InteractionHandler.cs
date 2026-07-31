@@ -230,7 +230,7 @@ public sealed class InteractionHandler : IDisposable
         // revealed and the video stays paused however far the pointer wanders in the meantime.
         if (StickyPopup && _popup.IsVisible && hit is null && !overPopup) return;
 
-        if (hit is not null || overPopup)
+        if (overPopup || (hit is not null && !StickyPopup))
             await _autopause.OnHoverEnterAsync(_ipc, ct);
 
         bool blurChanged = _blur.UpdateHover(hit, _currentEntry);
@@ -397,6 +397,7 @@ public sealed class InteractionHandler : IDisposable
         {
             if (_settings.PopupTrigger != PopupTriggerMode.Hover)
             {
+                await _autopause.OnHoverEnterAsync(_ipc, ct);
                 await _popup.ShowAsync(
                     hit, entry, new PopupPointerPosition(mx, my), ct);
                 _popupWord = hit;
