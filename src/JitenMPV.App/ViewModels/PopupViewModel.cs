@@ -19,9 +19,15 @@ public sealed record DeckOptionItem(DeckOption Option, ICommand Pick)
 }
 
 /// <param name="Ruby">
-/// Never empty: a blank line box keeps okurigana sitting on the same baseline as the annotated runs.
+/// Never empty, and blanked with an ideographic rather than an ASCII space: the placeholder has to
+/// resolve through the same Japanese fallback as real ruby, or its line box measures shorter and the
+/// okurigana rides above the annotated kanji.
 /// </param>
-public sealed record FuriganaItem(string Text, string Ruby);
+public sealed record FuriganaItem(string Text, string Ruby)
+{
+    public static FuriganaItem From(FuriganaSegment segment)
+        => new(segment.Text, segment.Ruby.Length > 0 ? segment.Ruby : "　");
+}
 
 public sealed record StateBadgeItem(KnownState State)
 {
@@ -199,7 +205,7 @@ public partial class PopupViewModel : ViewModelBase
         ShowFurigana = segments is not null;
         FuriganaSegments = segments is null
             ? []
-            : [..segments.Select(s => new FuriganaItem(s.Text, s.Ruby.Length > 0 ? s.Ruby : " "))];
+            : [..segments.Select(FuriganaItem.From)];
 
         ShowReading = !ShowFurigana && !string.IsNullOrEmpty(Reading) && Reading != data.Spelling;
         ShowFrequency = data.FrequencyRank > 0;

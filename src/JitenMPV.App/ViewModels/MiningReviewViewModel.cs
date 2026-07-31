@@ -43,7 +43,7 @@ public partial class MiningReviewViewModel : ViewModelBase
         ShowFurigana = segments is not null;
         FuriganaSegments = segments is null
             ? []
-            : [..segments.Select(s => new FuriganaItem(s.Text, s.Ruby.Length > 0 ? s.Ruby : " "))];
+            : [..segments.Select(FuriganaItem.From)];
         Reading = FuriganaParser.ToKana(data.Reading);
         ShowReading = !ShowFurigana && Reading.Length > 0 && Reading != data.Spelling;
 
