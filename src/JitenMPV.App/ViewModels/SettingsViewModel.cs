@@ -8,9 +8,11 @@ using System.Threading;
 using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using JitenMPV.App.Fonts;
 using JitenMPV.Core.Api;
 using JitenMPV.Core.Api.Models;
 using JitenMPV.Core.Config;
+using JitenMPV.Core.Fonts;
 using JitenMPV.Core.Install;
 using JitenMPV.Core.Media;
 using JitenMPV.Core.Pitch;
@@ -18,6 +20,7 @@ using JitenMPV.Core.Plus;
 using JitenMPV.Core.Theming;
 using JitenMPV.Core.Update;
 using Microsoft.Extensions.Logging.Abstractions;
+using AvaloniaFontFamily = Avalonia.Media.FontFamily;
 
 namespace JitenMPV.App.ViewModels;
 
@@ -40,6 +43,13 @@ public partial class SettingsViewModel : ViewModelBase
 
     [ObservableProperty] private string _selectedTheme = "";
     [ObservableProperty] private string _fontFamily = "";
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasFontWarning))]
+    private string? _fontWarning;
+
+    public bool HasFontWarning => !string.IsNullOrEmpty(FontWarning);
+
     [ObservableProperty] private int _fontSize;
     [ObservableProperty] private double _borderSize;
 
@@ -511,11 +521,51 @@ public partial class SettingsViewModel : ViewModelBase
         "Default", "High Contrast", "Monochrome", "Subtle", "Underline", "Toy Box", "Custom"
     ];
 
-    public ObservableCollection<string> AvailableFonts { get; } =
-    [
-        "Yu Gothic", "Yu Mincho", "Meiryo", "MS Gothic", "MS Mincho",
-        "Noto Sans JP", "Noto Serif JP", "BIZ UDGothic", "BIZ UDMincho"
-    ];
+    /// Installed families only. Offering fonts that are absent is what made the family setting look
+    /// inert: mpv silently substitutes for a name it cannot resolve, so every choice looked identical.
+    public ObservableCollection<string> AvailableFonts { get; } = [];
+
+    private bool _fontCatalogLoaded;
+
+    private async Task LoadInstalledFontsAsync()
+    {
+        var families = await Task.Run(() => SystemFontCatalog.JapaneseFamilies);
+
+        AvailableFonts.Clear();
+        foreach (var family in families)
+            AvailableFonts.Add(family);
+
+        _fontCatalogLoaded = true;
+        UpdateFontStatus();
+    }
+
+    partial void OnFontFamilyChanged(string value) => UpdateFontStatus();
+
+    /// Silent until the catalog is in, so a slow enumeration cannot flash a warning it has no
+    /// grounds for.
+    private void UpdateFontStatus()
+    {
+        OnPropertyChanged(nameof(PreviewFont));
+        if (!_fontCatalogLoaded) return;
+
+        if (SystemFontCatalog.CanRenderJapanese(FontFamily))
+        {
+            FontWarning = null;
+            return;
+        }
+
+        // An existing config keeps whatever font it was created with, so the better default cannot
+        // reach anyone who already ran the plugin; naming the font here is what does.
+        var suggestion = DefaultSubtitleFont.Value;
+        FontWarning = "This font is not installed, or cannot render Japanese. mpv will substitute "
+                      + "one, often a font that draws Chinese kanji forms."
+                      + (SystemFontCatalog.CanRenderJapanese(suggestion) ? $" Try {suggestion}." : "");
+    }
+
+    public AvaloniaFontFamily PreviewFont
+        => string.IsNullOrWhiteSpace(FontFamily)
+            ? AvaloniaFontFamily.Default
+            : new AvaloniaFontFamily(FontFamily);
 
     public bool IsCustomTheme => SelectedTheme == "Custom";
 
@@ -644,6 +694,7 @@ public partial class SettingsViewModel : ViewModelBase
         // wait for the user to visit a tab or press a button.
         _ = DetectFfmpegAsync();
         _ = CheckForUpdateAsync();
+        _ = LoadInstalledFontsAsync();
         RefreshInstallState();
     }
 

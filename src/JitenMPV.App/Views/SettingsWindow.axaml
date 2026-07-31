@@ -453,21 +453,31 @@
 
             <StackPanel Spacing="8">
               <TextBlock Text="FONT" Classes="section-header" />
-              <Grid ColumnDefinitions="80,*" RowDefinitions="Auto,Auto,Auto" RowSpacing="8">
+              <Grid ColumnDefinitions="80,*" RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="8">
                 <TextBlock Text="Family" VerticalAlignment="Center" Foreground="#a1a1aa" />
                 <ComboBox Grid.Column="1" ItemsSource="{Binding AvailableFonts}"
-                          SelectedItem="{Binding FontFamily}" IsEditable="True" />
+                          Text="{Binding FontFamily}" IsEditable="True"
+                          HorizontalAlignment="Left" Width="300" MaxDropDownHeight="320" />
 
-                <TextBlock Grid.Row="1" Text="Size" VerticalAlignment="Center" Foreground="#a1a1aa" />
-                <StackPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                <StackPanel Grid.Row="1" Grid.Column="1" Spacing="4">
+                  <TextBlock Text="{Binding FontWarning}" FontSize="11" Foreground="#fbbf24"
+                             TextWrapping="Wrap" IsVisible="{Binding HasFontWarning}" />
+                  <TextBlock Text="世界、こんにちは。" FontSize="20" Foreground="#fafafa"
+                             FontFamily="{Binding PreviewFont}" />
+                  <TextBlock Text="Preview of the installed font. Check the kanji look Japanese and not Chinese."
+                             FontSize="11" Foreground="#71717a" TextWrapping="Wrap" />
+                </StackPanel>
+
+                <TextBlock Grid.Row="2" Text="Size" VerticalAlignment="Center" Foreground="#a1a1aa" />
+                <StackPanel Grid.Row="2" Grid.Column="1" Orientation="Horizontal" Spacing="8">
                   <Slider Value="{Binding FontSize}" Minimum="24" Maximum="96" Width="300"
                           TickFrequency="1" IsSnapToTickEnabled="True" />
                   <TextBlock Text="{Binding FontSize}" VerticalAlignment="Center"
                              Width="30" Foreground="#ffffff" />
                 </StackPanel>
 
-                <TextBlock Grid.Row="2" Text="Border" VerticalAlignment="Center" Foreground="#a1a1aa" />
-                <StackPanel Grid.Row="2" Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                <TextBlock Grid.Row="3" Text="Border" VerticalAlignment="Center" Foreground="#a1a1aa" />
+                <StackPanel Grid.Row="3" Grid.Column="1" Orientation="Horizontal" Spacing="8">
                   <Slider Value="{Binding BorderSize}" Minimum="0" Maximum="10" Width="300"
                           TickFrequency="0.5" IsSnapToTickEnabled="True" />
                   <TextBlock Text="{Binding BorderSize, StringFormat='{}{0:F1}'}"

@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using JitenMPV.Core.Fonts;
 
 namespace JitenMPV.Core.Config;
 
@@ -14,7 +15,7 @@ public sealed class PluginSettings
     public int ApiTimeoutSeconds { get; set; } = 30;
 
     [JsonPropertyName("font_family")]
-    public string FontFamily { get; set; } = "Yu Gothic";
+    public string FontFamily { get; set; } = DefaultSubtitleFont.Value;
 
     [JsonPropertyName("font_size")]
     public int FontSize { get; set; } = 48;

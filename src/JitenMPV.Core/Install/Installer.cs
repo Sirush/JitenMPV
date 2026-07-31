@@ -1,7 +1,7 @@
-using System.Diagnostics;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using JitenMPV.Core.Config;
+using JitenMPV.Core.Fonts;
 
 namespace JitenMPV.Core.Install;
 
@@ -116,32 +116,10 @@ public static class Installer
     /// <returns>Null when a Japanese font exists, or when fontconfig cannot answer.</returns>
     private static string? MissingJapaneseFontWarning()
     {
-        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Linux)) return null;
+        if (FontconfigCatalog.QueryJapaneseFamilies() is not { Primary.Count: 0 }) return null;
 
-        try
-        {
-            using var process = Process.Start(new ProcessStartInfo("fc-list")
-            {
-                ArgumentList = { ":lang=ja", "family" },
-                RedirectStandardOutput = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            });
-
-            if (process is null) return null;
-
-            var families = process.StandardOutput.ReadToEnd();
-            if (!process.WaitForExit(5000) || process.ExitCode != 0) return null;
-            if (families.Trim().Length > 0) return null;
-
-            return "Warning: no Japanese font is installed, so the dictionary popup will show "
-                   + "boxes instead of kana. Install one, for example fonts-noto-cjk.";
-        }
-        catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or IOException)
-        {
-            // No fontconfig on this system, so nothing can be concluded either way.
-            return null;
-        }
+        return "Warning: no Japanese font is installed, so the dictionary popup will show "
+               + "boxes instead of kana. Install one, for example fonts-noto-cjk.";
     }
 
     /// <returns>A description of what happened, or null when there was nothing to do.</returns>
