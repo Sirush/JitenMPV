@@ -2,6 +2,7 @@ using System;
 using CommunityToolkit.Mvvm.ComponentModel;
 using JitenMPV.Core.Api.Models;
 using JitenMPV.Core.Config;
+using JitenMPV.Core.Rendering;
 using JitenMPV.Core.Theming;
 
 namespace JitenMPV.App.ViewModels;
@@ -25,6 +26,9 @@ public partial class StateStyleViewModel : ViewModelBase
     [ObservableProperty] private bool _italic;
     [ObservableProperty] private bool _underline;
     [ObservableProperty] private bool _strikethrough;
+
+    [ObservableProperty] private string _underlineColor = "#ffffff";
+    [ObservableProperty] private double _underlineThickness = UnderlineBarRenderer.DefaultThickness;
 
     [ObservableProperty] private string _swatchColor = "#ffffff";
 
@@ -54,6 +58,8 @@ public partial class StateStyleViewModel : ViewModelBase
             Bold = Bold,
             Italic = Italic,
             Underline = Underline,
+            UnderlineColor = Underline ? UnderlineColor : null,
+            UnderlineThickness = Underline ? UnderlineThickness : null,
             Strikethrough = Strikethrough,
         };
     }
@@ -74,6 +80,10 @@ public partial class StateStyleViewModel : ViewModelBase
             Bold = css.Bold,
             Italic = css.Italic,
             Underline = css.Underline,
+            // A preset underline is drawn in the text colour, so that is what the picker starts from
+            // when a style that never named an underline colour is opened for editing.
+            UnderlineColor = css.UnderlineColor ?? css.TextColor,
+            UnderlineThickness = css.UnderlineThickness ?? UnderlineBarRenderer.DefaultThickness,
             Strikethrough = css.Strikethrough,
         };
         vm.SwatchColor = vm.TextColor;

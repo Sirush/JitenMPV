@@ -324,7 +324,7 @@
                           <!-- Colors -->
                           <StackPanel Spacing="8">
                             <TextBlock Text="COLORS" Classes="section-header" />
-                            <Grid ColumnDefinitions="90,*" RowDefinitions="Auto,Auto,Auto" RowSpacing="8">
+                            <Grid ColumnDefinitions="90,*" RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="8">
                               <TextBlock Text="Text" VerticalAlignment="Center" Foreground="#a1a1aa" />
                               <ColorPicker Grid.Column="1" IsAlphaVisible="False"
                                            Color="{Binding TextColor, Converter={StaticResource HexToColor}}"
@@ -342,13 +342,18 @@
                                              IsAlphaVisible="False"
                                              IsEnabled="{Binding HasShadow}" HorizontalAlignment="Left" />
                               </StackPanel>
+
+                              <TextBlock Grid.Row="3" Text="Underline" VerticalAlignment="Center" Foreground="#a1a1aa" />
+                              <ColorPicker Grid.Row="3" Grid.Column="1" IsAlphaVisible="False"
+                                           Color="{Binding UnderlineColor, Converter={StaticResource HexToColor}}"
+                                           IsEnabled="{Binding Underline}" HorizontalAlignment="Left" />
                             </Grid>
                           </StackPanel>
 
                           <!-- Sizes -->
                           <StackPanel Spacing="8">
                             <TextBlock Text="SIZES" Classes="section-header" />
-                            <Grid ColumnDefinitions="90,*" RowDefinitions="Auto,Auto" RowSpacing="8">
+                            <Grid ColumnDefinitions="90,*" RowDefinitions="Auto,Auto,Auto" RowSpacing="8">
                               <TextBlock Text="Outline" VerticalAlignment="Center" Foreground="#a1a1aa" />
                               <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
                                 <Slider Value="{Binding OutlineSize}" Minimum="0" Maximum="10" Width="200"
@@ -363,6 +368,15 @@
                                         IsEnabled="{Binding HasShadow}"
                                         TickFrequency="0.5" IsSnapToTickEnabled="True" />
                                 <TextBlock Text="{Binding ShadowDepth, StringFormat='{}{0:F1}'}"
+                                           VerticalAlignment="Center" Width="30" Foreground="#ffffff" />
+                              </StackPanel>
+
+                              <TextBlock Grid.Row="2" Text="Underline" VerticalAlignment="Center" Foreground="#a1a1aa" />
+                              <StackPanel Grid.Row="2" Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                                <Slider Value="{Binding UnderlineThickness}" Minimum="1" Maximum="10" Width="200"
+                                        IsEnabled="{Binding Underline}"
+                                        TickFrequency="0.5" IsSnapToTickEnabled="True" />
+                                <TextBlock Text="{Binding UnderlineThickness, StringFormat='{}{0:F1}'}"
                                            VerticalAlignment="Center" Width="30" Foreground="#ffffff" />
                               </StackPanel>
                             </Grid>

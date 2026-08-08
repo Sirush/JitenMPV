@@ -80,7 +80,9 @@ public sealed class OverlayRenderer
         return $@"{{\an{align}{BuildPositionTags(resX, settings, align)}{BuildStyleTags(settings)}}}";
     }
 
-    public string RenderSubtitle(
+    /// Underlines carries the words whose resolved style asks for a coloured bar, since style
+    /// resolution happens here and the bar overlay is written by a later stage.
+    public (string Ass, IReadOnlyDictionary<(int WordId, byte ReadingIndex), UnderlineBar>? Underlines) RenderSubtitle(
         string originalText,
         ParseCacheEntry entry,
         HashSet<(int WordId, byte ReadingIndex)>? iPlusOneWords = null,
@@ -92,6 +94,7 @@ public sealed class OverlayRenderer
         sb.Append(snap.Preamble);
 
         double border = snap.Settings.BorderSize;
+        Dictionary<(int WordId, byte ReadingIndex), UnderlineBar>? underlines = null;
 
         int lastEnd = 0;
         foreach (var token in entry.Tokens)
@@ -105,6 +108,12 @@ public sealed class OverlayRenderer
             var style = _styleResolver.Resolve(
                 token, entry.VocabStates, iPlusOneWords, frequencyWords, entry.PitchClasses, revealedWords);
 
+            if (style.Underline == true && style.UnderlineColor is { } barColor)
+            {
+                (underlines ??= [])[(token.WordId, token.ReadingIndex)] = new UnderlineBar(
+                    barColor, style.UnderlineThickness ?? UnderlineBarRenderer.DefaultThickness);
+            }
+
             AssTagBuilder.AppendStyle(sb, style, border);
             AssTagBuilder.AppendEscapedText(sb, originalText, token.Start, token.Length);
 
@@ -117,7 +126,7 @@ public sealed class OverlayRenderer
             AssTagBuilder.AppendEscapedText(sb, originalText, lastEnd, originalText.Length - lastEnd);
         }
 
-        return sb.ToString();
+        return (sb.ToString(), underlines);
     }
 
     public string RenderPlain(string text)

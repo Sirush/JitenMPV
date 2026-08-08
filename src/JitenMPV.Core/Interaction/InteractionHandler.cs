@@ -72,6 +72,11 @@ public sealed class InteractionHandler : IDisposable
 
     public void UpdateSettings(PluginSettings newSettings) => _settings = newSettings;
 
+    /// Redraws the underline overlay after a re-render here changed a word's resolved style, which a
+    /// blur reveal or a state change does without going through a fresh subtitle render.
+    public Func<ParseCacheEntry?, IReadOnlyDictionary<(int WordId, byte ReadingIndex), UnderlineBar>?,
+        CancellationToken, Task>? UnderlineBarsChanged { get; set; }
+
     /// A click-triggered popup is dismissed by a click, not by the pointer wandering off it.
     private bool StickyPopup => _settings.PopupTrigger == PopupTriggerMode.Click;
 
@@ -575,9 +580,12 @@ public sealed class InteractionHandler : IDisposable
 
         try
         {
-            var (ass, _) = await _colorizer.ColorizeWithRevealAsync(
+            var render = await _colorizer.ColorizeWithRevealAsync(
                 _currentText, _blur.GetRevealedSnapshot(), ct);
-            await _ipc.ShowOverlayAsync(SubtitleOverlayId, ass, ct);
+            await _ipc.ShowOverlayAsync(SubtitleOverlayId, render.Ass, ct);
+
+            if (UnderlineBarsChanged is { } redrawBars)
+                await redrawBars(render.Entry, render.Underlines, ct);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {

@@ -35,6 +35,15 @@ public sealed class CustomStateStyle
     [JsonPropertyName("underline")]
     public bool Underline { get; set; }
 
+    /// Null draws the underline in the text colour via ASS `\u`; a value draws a coloured bar instead.
+    [JsonPropertyName("underline_color")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? UnderlineColor { get; set; }
+
+    [JsonPropertyName("underline_thickness")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public double? UnderlineThickness { get; set; }
+
     [JsonPropertyName("strikethrough")]
     public bool Strikethrough { get; set; }
 
@@ -49,6 +58,8 @@ public sealed class CustomStateStyle
         Bold = Bold,
         Italic = Italic,
         Underline = Underline,
+        UnderlineColor = UnderlineColor,
+        UnderlineThickness = UnderlineThickness,
         Strikethrough = Strikethrough,
     };
 
@@ -63,6 +74,8 @@ public sealed class CustomStateStyle
         Bold = ws.Bold ?? false,
         Italic = ws.Italic ?? false,
         Underline = ws.Underline ?? false,
+        UnderlineColor = ws.UnderlineColor,
+        UnderlineThickness = ws.UnderlineThickness,
         Strikethrough = ws.Strikethrough ?? false,
     };
 }

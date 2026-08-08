@@ -24,7 +24,7 @@ public sealed class PluginHost(
     IMediaOverwritePresenter? overwritePresenter = null)
 {
     internal const int SubtitleOverlayId = 1;
-    internal const int PitchUnderlineOverlayId = 2;
+    internal const int UnderlineOverlayId = 2;
     internal const int HitboxDebugOverlayId = 3;
     internal const string OpenSettingsMessage = "jiten-open-settings";
     internal const string ToggleSubtitlesMessage = "jiten-toggle-subtitles";
@@ -65,6 +65,10 @@ public sealed class PluginHost(
 
     private volatile bool _shuttingDown;
     private volatile string? _currentSubtitleText;
+
+    /// The rects the bar overlay was last drawn against, so a re-render driven by interaction can
+    /// redraw the bars without re-measuring the line that is already on screen.
+    private volatile IReadOnlyList<WordRect> _lastLayout = [];
     private long? _mpvWindowId;
     private IReadOnlyList<string> _mpvDisplayNames = [];
 
@@ -173,7 +177,7 @@ public sealed class PluginHost(
                     if (_currentSubtitleRaw != raw) return;
                     _currentSubtitleText = text;
 
-                    var (ass, entry) = await colorizer.ColorizeAsync(text, CancellationToken.None);
+                    var (ass, entry, underlines) = await colorizer.ColorizeAsync(text, CancellationToken.None);
 
                     // A subtitle change during the round trip means this overlay and layout are
                     // stale; writing them would clobber the newer line's rendering and hit-test rects.
@@ -185,7 +189,8 @@ public sealed class PluginHost(
                         var layout = await measurer.MeasureAsync(text, entry, ipc, CancellationToken.None);
                         if (!_subtitlesVisible || _currentSubtitleText != text) return;
                         interaction.UpdateLayout(layout);
-                        await RenderPitchUnderlinesAsync(entry, layout, ipc, CancellationToken.None);
+                        _lastLayout = layout;
+                        await RenderUnderlineBarsAsync(entry, underlines, layout, ipc, CancellationToken.None);
                         await RenderDebugHitboxesAsync(layout, ipc, CancellationToken.None);
                     }
                 }, logger, "Re-render subtitle after settings change");
@@ -219,22 +224,52 @@ public sealed class PluginHost(
         return theme;
     }
 
-    private async Task RenderPitchUnderlinesAsync(
-        ParseCacheEntry? entry, IReadOnlyList<WordRect> layout,
+    private async Task RenderUnderlineBarsAsync(
+        ParseCacheEntry? entry,
+        IReadOnlyDictionary<(int WordId, byte ReadingIndex), UnderlineBar>? themeUnderlines,
+        IReadOnlyList<WordRect> layout,
         MpvIpcClient ipc, CancellationToken ct)
     {
         var settings = _settings;
         if (settings is null) return;
 
-        var colors = PitchStyleBuilder.BuildUnderlineColors(settings);
-        var ass = entry is not null && colors.Count > 0
-            ? PitchUnderlineRenderer.Render(layout, entry.PitchClasses, colors, settings.PitchUnderlineThickness)
-            : string.Empty;
+        var ass = UnderlineBarRenderer.Render(
+            BuildUnderlineBars(entry, themeUnderlines, layout, PitchStyleBuilder.BuildUnderlineColors(settings),
+                settings.PitchUnderlineThickness),
+            _measurer?.LinePitch);
 
         if (ass.Length == 0)
-            await ipc.RemoveOverlayAsync(PitchUnderlineOverlayId, ct);
+            await ipc.RemoveOverlayAsync(UnderlineOverlayId, ct);
         else
-            await ipc.ShowOverlayAsync(PitchUnderlineOverlayId, ass, ct);
+            await ipc.ShowOverlayAsync(UnderlineOverlayId, ass, ct);
+    }
+
+    /// The theme bar comes first so it sits nearest the text, leaving pitch stacked beneath it.
+    private static IEnumerable<(WordRect Rect, IReadOnlyList<UnderlineBar> Bars)> BuildUnderlineBars(
+        ParseCacheEntry? entry,
+        IReadOnlyDictionary<(int WordId, byte ReadingIndex), UnderlineBar>? themeUnderlines,
+        IReadOnlyList<WordRect> layout,
+        IReadOnlyDictionary<PitchClass, string> pitchColors,
+        double pitchThickness)
+    {
+        foreach (var rect in layout)
+        {
+            var key = (rect.WordId, rect.ReadingIndex);
+            List<UnderlineBar>? bars = null;
+
+            if (themeUnderlines?.TryGetValue(key, out var themeBar) == true)
+                (bars ??= []).Add(themeBar);
+
+            if (pitchColors.Count > 0 && entry is not null
+                && entry.PitchClasses.TryGetValue(key, out var pitchClass)
+                && pitchColors.TryGetValue(pitchClass, out var pitchColor))
+            {
+                (bars ??= []).Add(new UnderlineBar(pitchColor, pitchThickness));
+            }
+
+            if (bars is not null)
+                yield return (rect, bars);
+        }
     }
 
     /// No-ops while the option is off so the common path costs no extra round trip; ReloadSettings
@@ -355,6 +390,8 @@ public sealed class PluginHost(
                 wordAction, reviewService, miningService, rotationService, colorizer,
                 settings, osd, logger);
             _interactionHandler = interaction;
+            interaction.UnderlineBarsChanged = (entry, underlines, ct) =>
+                RenderUnderlineBarsAsync(entry, underlines, _lastLayout, ipcClient, ct);
 
             var keybindManager = new KeybindManager(ipcClient, logger);
             _keybindManager = keybindManager;
@@ -551,7 +588,7 @@ public sealed class PluginHost(
                 using var cleanupCts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
                 var cct = cleanupCts.Token;
                 await ipcClient.RemoveOverlayAsync(SubtitleOverlayId, cct);
-                await ipcClient.RemoveOverlayAsync(PitchUnderlineOverlayId, cct);
+                await ipcClient.RemoveOverlayAsync(UnderlineOverlayId, cct);
                 await ipcClient.RemoveOverlayAsync(HitboxDebugOverlayId, cct);
                 await ipcClient.RemoveOverlayAsync(StatusOverlay.StatusLayerId, cct);
                 await ipcClient.SendScriptMessageAsync(
@@ -678,7 +715,7 @@ public sealed class PluginHost(
                 if (_interactionHandler is { } interaction)
                     await interaction.OnSubtitleRenderedAsync(null, null, [], ct);
                 await ipc.RemoveOverlayAsync(SubtitleOverlayId, ct);
-                await ipc.RemoveOverlayAsync(PitchUnderlineOverlayId, ct);
+                await ipc.RemoveOverlayAsync(UnderlineOverlayId, ct);
                 await RenderDebugHitboxesAsync([], ipc, ct);
             }
 
@@ -847,7 +884,7 @@ public sealed class PluginHost(
                 await interaction.OnSubtitleRenderedAsync(null, null, [], ct);
                 if (Superseded()) return;
                 await ipcClient.RemoveOverlayAsync(SubtitleOverlayId, ct);
-                await ipcClient.RemoveOverlayAsync(PitchUnderlineOverlayId, ct);
+                await ipcClient.RemoveOverlayAsync(UnderlineOverlayId, ct);
                 await RenderDebugHitboxesAsync([], ipcClient, ct);
                 return;
             }
@@ -858,7 +895,7 @@ public sealed class PluginHost(
             if (Superseded() || _currentSubtitleRaw != text) return;
             _currentSubtitleText = display;
 
-            var (ass, entry) = await colorizer.ColorizeAsync(display, ct);
+            var (ass, entry, underlines) = await colorizer.ColorizeAsync(display, ct);
             if (Superseded()) return;
 
             var showTask = ipcClient.ShowOverlayAsync(SubtitleOverlayId, ass, ct);
@@ -869,8 +906,9 @@ public sealed class PluginHost(
             await Task.WhenAll(showTask, measureTask);
             if (Superseded()) return;
             var layout = measureTask.Result;
+            _lastLayout = layout;
 
-            await RenderPitchUnderlinesAsync(entry, layout, ipcClient, ct);
+            await RenderUnderlineBarsAsync(entry, underlines, layout, ipcClient, ct);
             await RenderDebugHitboxesAsync(layout, ipcClient, ct);
             if (Superseded()) return;
 

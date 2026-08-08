@@ -103,8 +103,22 @@ public static class ThemeCodeImporter
                         style.Italic = true;
                     break;
 
+                // Dashed, dotted and wavy all import as a solid bar; ASS drawings have no dash pattern.
                 case "underline":
                     style.Underline = true;
+                    if (effect.TryGetProperty("colour", out var uc))
+                        style.UnderlineColor = NormalizeColor(uc.GetString());
+                    if (effect.TryGetProperty("thickness", out var ut))
+                        style.UnderlineThickness = Math.Clamp(ut.GetDouble(), 1, 10);
+                    break;
+
+                // The reader's border boxes the word; ASS has only a glyph outline, so the radius
+                // and dashed style are dropped and the width carries over as-is.
+                case "border":
+                    if (effect.TryGetProperty("colour", out var bc) && NormalizeColor(bc.GetString()) is { } borderColor)
+                        style.OutlineColor = borderColor;
+                    if (effect.TryGetProperty("width", out var bw))
+                        style.OutlineSize = Math.Clamp(bw.GetDouble(), 0, 10);
                     break;
             }
         }
