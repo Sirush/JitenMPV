@@ -73,6 +73,14 @@
       <Setter Property="Background" Value="#27272a" />
       <Setter Property="Foreground" Value="#d4d4d8" />
     </Style>
+
+    <Style Selector="Border.save-badge">
+      <Setter Property="Transitions">
+        <Transitions>
+          <DoubleTransition Property="Opacity" Duration="0:0:0.25" />
+        </Transitions>
+      </Setter>
+    </Style>
     <Style Selector="Button.secondary:pointerover /template/ ContentPresenter#PART_ContentPresenter">
       <Setter Property="Background" Value="#3f3f46" />
     </Style>
@@ -1246,11 +1254,24 @@
                 Command="{Binding ResetSectionCommand}" />
         <TextBlock Grid.Column="1" Text="{Binding VersionLabel}" Margin="12,0,0,0"
                    VerticalAlignment="Center" FontSize="11" Foreground="#52525b" />
+
+        <Grid Grid.Column="2" ColumnDefinitions="*,Auto" Margin="12,0,16,0" VerticalAlignment="Center">
+          <Border Classes="save-badge" Opacity="{Binding SaveBadgeOpacity}"
+                  HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,12,0"
+                  Background="#18181b" BorderBrush="#27272a" BorderThickness="1"
+                  CornerRadius="9" Padding="9,2" ToolTip.Tip="{Binding SaveBadgeText}">
+            <TextBlock Text="{Binding SaveBadgeText}" FontSize="11" TextTrimming="CharacterEllipsis"
+                       Foreground="{Binding SaveBadgeColor, Converter={StaticResource StringToBrush}}" />
+          </Border>
+          <CheckBox Grid.Column="1" Content="Auto-save" IsChecked="{Binding AutoSaveEnabled}" FontSize="12"
+                    ToolTip.Tip="Saves and applies changes shortly after you stop editing" />
+        </Grid>
+
         <Button Grid.Column="3" Content="Close" IsCancel="True"
                 Classes="secondary"
                 Click="OnClose" Margin="0,0,8,0" />
         <Button Grid.Column="4" Content="Save"
-                Click="OnSave" Classes="accent" />
+                Command="{Binding SaveCommand}" Classes="accent" />
       </Grid>
     </Border>
   </Grid>

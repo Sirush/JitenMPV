@@ -1,11 +1,13 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using JitenMPV.App.Fonts;
@@ -579,6 +581,15 @@ public partial class SettingsViewModel : ViewModelBase
 
     public SettingsViewModel(PluginSettings s)
     {
+        _autoSaveTimer.Tick += OnAutoSaveTick;
+        _saveBadgeTimer.Tick += (_, _) =>
+        {
+            _saveBadgeTimer.Stop();
+            SaveBadgeOpacity = 0;
+        };
+        WatchStyleEdits(CustomStateStyles);
+        WatchStyleEdits(PitchStyles);
+
         ApiKey = s.ApiKey ?? "";
         ApiBaseUrl = s.ApiBaseUrl;
         ApiTimeoutSeconds = s.ApiTimeoutSeconds;
@@ -659,6 +670,7 @@ public partial class SettingsViewModel : ViewModelBase
         PluginAutostart = s.PluginAutostart;
         PluginStartKey = s.PluginStartKey;
         UpdateCheckEnabled = s.UpdateCheckEnabled;
+        AutoSaveEnabled = s.AutoSaveSettings;
         PreparseEnabled = s.PreparseEnabled;
         PreparseBatchSize = s.PreparseBatchSize;
         StatusOverlayEnabled = s.StatusOverlayEnabled;
@@ -692,6 +704,9 @@ public partial class SettingsViewModel : ViewModelBase
         _previousTheme = s.Theme == "Custom" ? "Default" : s.Theme;
         if (s.Theme == "Custom" && s.CustomThemeColors is { Count: > 0 } custom)
             InitCustomStylesFromSettings(custom);
+
+        _savedJson = SettingsManager.Serialize(ToPluginSettings());
+        _autoSaveArmed = true;
 
         // The General tab is the landing tab and leads with ffmpeg's state, so the probe cannot
         // wait for the user to visit a tab or press a button.
@@ -849,6 +864,7 @@ public partial class SettingsViewModel : ViewModelBase
             PluginAutostart = PluginAutostart,
             PluginStartKey = string.IsNullOrWhiteSpace(PluginStartKey) ? "F10" : PluginStartKey.Trim(),
             UpdateCheckEnabled = UpdateCheckEnabled,
+            AutoSaveSettings = AutoSaveEnabled,
             PreparseEnabled = PreparseEnabled,
             PreparseBatchSize = PreparseBatchSize,
             StatusOverlayEnabled = StatusOverlayEnabled,
@@ -912,6 +928,137 @@ public partial class SettingsViewModel : ViewModelBase
         TryAdd("RotateForward", KeybindRotateForward);
         TryAdd("RotateBackward", KeybindRotateBackward);
         return dict.Count > 0 ? dict : null;
+    }
+
+    private const int AutoSaveDebounceMs = 700;
+    private const int SaveBadgeVisibleMs = 2200;
+
+    /// Raised after config.json is written, by the Save button or by autosave alike.
+    public event Action<PluginSettings>? SettingsApplied;
+
+    [ObservableProperty] private bool _autoSaveEnabled;
+
+    [ObservableProperty] private double _saveBadgeOpacity;
+    [ObservableProperty] private string _saveBadgeText = "";
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(SaveBadgeColor))]
+    private bool _saveBadgeFailed;
+
+    public string SaveBadgeColor => SaveBadgeFailed ? "#fca5a5" : "#86efac";
+
+    private readonly DispatcherTimer _autoSaveTimer =
+        new() { Interval = TimeSpan.FromMilliseconds(AutoSaveDebounceMs) };
+
+    private readonly DispatcherTimer _saveBadgeTimer =
+        new() { Interval = TimeSpan.FromMilliseconds(SaveBadgeVisibleMs) };
+
+    private readonly SemaphoreSlim _saveGate = new(1, 1);
+    private string _savedJson = "";
+    private bool _autoSaveArmed;
+
+    public bool HasPendingAutoSave => _autoSaveTimer.IsEnabled;
+
+    /// Lets the window commit an edit the debounce is still holding when it closes.
+    public Task FlushPendingSaveAsync()
+    {
+        _autoSaveTimer.Stop();
+        return PersistAsync(onlyIfChanged: true);
+    }
+
+    [RelayCommand]
+    private Task SaveAsync() => PersistAsync(onlyIfChanged: false);
+
+    /// Every property write lands here, including the status text of a background probe, so the
+    /// decision to skip an unchanged config is what keeps autosave from writing on its own noise.
+    protected override void OnPropertyChanged(PropertyChangedEventArgs e)
+    {
+        base.OnPropertyChanged(e);
+
+        if (e.PropertyName is nameof(SaveBadgeOpacity) or nameof(SaveBadgeText) or nameof(SaveBadgeFailed))
+            return;
+
+        ScheduleAutoSave();
+    }
+
+    private void ScheduleAutoSave()
+    {
+        if (!_autoSaveArmed || !AutoSaveEnabled) return;
+
+        _autoSaveTimer.Stop();
+        _autoSaveTimer.Start();
+    }
+
+    /// Turning autosave off is itself a change no debounce is left to write.
+    partial void OnAutoSaveEnabledChanged(bool value)
+    {
+        if (!value) _ = PersistAsync(onlyIfChanged: true);
+    }
+
+    /// A colour edit raises PropertyChanged on the child style, never on this view model.
+    private void WatchStyleEdits<T>(ObservableCollection<T> styles) where T : ViewModelBase
+    {
+        foreach (var style in styles)
+            style.PropertyChanged += OnStyleEdited;
+
+        styles.CollectionChanged += (_, e) =>
+        {
+            if (e.OldItems is { } removed)
+                foreach (T style in removed)
+                    style.PropertyChanged -= OnStyleEdited;
+            if (e.NewItems is { } added)
+                foreach (T style in added)
+                    style.PropertyChanged += OnStyleEdited;
+
+            ScheduleAutoSave();
+        };
+    }
+
+    private void OnStyleEdited(object? sender, PropertyChangedEventArgs e) => ScheduleAutoSave();
+
+    private async void OnAutoSaveTick(object? sender, EventArgs e)
+    {
+        _autoSaveTimer.Stop();
+        if (!AutoSaveEnabled) return;
+
+        await PersistAsync(onlyIfChanged: true);
+    }
+
+    private async Task PersistAsync(bool onlyIfChanged)
+    {
+        var settings = ToPluginSettings();
+        var json = SettingsManager.Serialize(settings);
+        if (onlyIfChanged && json == _savedJson) return;
+
+        await _saveGate.WaitAsync();
+        try
+        {
+            await SettingsManager.SaveAsync(settings);
+            _savedJson = json;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            ShowSaveBadge($"Could not save: {ex.Message}", failed: true);
+            return;
+        }
+        finally
+        {
+            _saveGate.Release();
+        }
+
+        SettingsApplied?.Invoke(settings);
+        ShowSaveBadge("Saved", failed: false);
+    }
+
+    /// A failure stays on screen: it is the one outcome the user has to act on.
+    private void ShowSaveBadge(string text, bool failed)
+    {
+        SaveBadgeText = text;
+        SaveBadgeFailed = failed;
+        SaveBadgeOpacity = 1;
+
+        _saveBadgeTimer.Stop();
+        if (!failed) _saveBadgeTimer.Start();
     }
 
     [RelayCommand]

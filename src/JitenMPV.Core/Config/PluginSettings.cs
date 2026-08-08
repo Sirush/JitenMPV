@@ -396,6 +396,9 @@ public sealed class PluginSettings
     [JsonPropertyName("plugin_start_key")]
     public string PluginStartKey { get; set; } = "F10";
 
+    [JsonPropertyName("auto_save_settings")]
+    public bool AutoSaveSettings { get; set; }
+
     [JsonPropertyName("popup_keybinds")]
     public Dictionary<string, string>? PopupKeybinds { get; set; } = new()
     {

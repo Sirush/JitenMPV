@@ -51,12 +51,14 @@ public static class SettingsManager
         }
     }
 
+    public static string Serialize(PluginSettings settings) => JsonSerializer.Serialize(settings, JsonOptions);
+
     public static async Task SaveAsync(PluginSettings settings, CancellationToken ct = default)
     {
         Directory.CreateDirectory(ConfigDir);
-        var json = JsonSerializer.Serialize(settings, JsonOptions);
+        var json = Serialize(settings);
 
-        var tmpPath = ConfigPath + ".tmp";
+        var tmpPath = $"{ConfigPath}.{Environment.ProcessId}.tmp";
         await File.WriteAllTextAsync(tmpPath, json, ct);
         File.Move(tmpPath, ConfigPath, overwrite: true);
     }
