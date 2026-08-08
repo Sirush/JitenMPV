@@ -161,7 +161,10 @@ public static class SelfUpdater
 
         return Directory
             .EnumerateFiles(unpacked, Installer.ExecutableName, SearchOption.AllDirectories)
-            .FirstOrDefault();
+            .FirstOrDefault()
+            ?? Directory
+                .EnumerateFiles(unpacked, "JitenMPV", SearchOption.AllDirectories)
+                .FirstOrDefault();
     }
 
     /// Installations made before single-file publishing left Skia, HarfBuzz and ANGLE beside the

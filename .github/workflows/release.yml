@@ -97,13 +97,14 @@ jobs:
       - name: Sign and package
         run: |
           test "$(find out -type f | wc -l)" -eq 1 || { echo "expected one file:"; ls -la out; exit 1; }
-          codesign --force --sign - out/JitenMPV.App
-          codesign --verify --verbose out/JitenMPV.App
-          chmod +x out/JitenMPV.App
+          mv out/JitenMPV.App out/JitenMPV
+          codesign --force --sign - out/JitenMPV
+          codesign --verify --verbose out/JitenMPV
+          chmod +x out/JitenMPV
           cp scripts/jiten-mpv.lua out/
           mkdir -p dist
           ARCHIVE=jiten-mpv-${{ matrix.rid }}.tar.gz
-          tar -C out -czf dist/"$ARCHIVE" JitenMPV.App jiten-mpv.lua
+          tar -C out -czf dist/"$ARCHIVE" JitenMPV jiten-mpv.lua
           (cd dist && shasum -a 256 "$ARCHIVE" > "$ARCHIVE.sha256")
 
       - uses: actions/upload-artifact@v5

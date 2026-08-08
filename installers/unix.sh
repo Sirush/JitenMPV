@@ -90,21 +90,25 @@ ACTUAL=$(sha256_of "$TEMP/$ASSET")
 [ "$EXPECTED" = "$ACTUAL" ] || die "checksum mismatch for $ASSET: expected $EXPECTED, got $ACTUAL"
 
 tar -C "$TEMP" -xzf "$TEMP/$ASSET"
-[ -f "$TEMP/JitenMPV.App" ] || die "$ASSET did not contain JitenMPV.App"
-chmod +x "$TEMP/JitenMPV.App"
+
+# macOS archives name the binary JitenMPV since v0.1.5; older releases and Linux use JitenMPV.App.
+BIN="JitenMPV"
+[ -f "$TEMP/$BIN" ] || BIN="JitenMPV.App"
+[ -f "$TEMP/$BIN" ] || die "$ASSET did not contain a JitenMPV executable"
+chmod +x "$TEMP/$BIN"
 
 # Gatekeeper on macOS 26 kills binaries whose ad-hoc signature was made on another machine
 # ("Killed: 9"); re-signing with this Mac's own identity is what it accepts. codesign is part
 # of the base system.
 if [ "$(uname -s)" = "Darwin" ]; then
-    codesign --force --sign - "$TEMP/JitenMPV.App" ||
+    codesign --force --sign - "$TEMP/$BIN" ||
         echo "warning: re-signing failed; macOS may refuse to run JitenMPV" >&2
 fi
 
 if [ -n "${JITEN_MPV_MPV_CONFIG_DIR:-}" ]; then
-    "$TEMP/JitenMPV.App" install --mpv-config-dir "$JITEN_MPV_MPV_CONFIG_DIR"
+    "$TEMP/$BIN" install --mpv-config-dir "$JITEN_MPV_MPV_CONFIG_DIR"
 else
-    "$TEMP/JitenMPV.App" install
+    "$TEMP/$BIN" install
 fi
 
 # The dictionary popup positions itself through X11; without libX11 it still opens, anchored to the
