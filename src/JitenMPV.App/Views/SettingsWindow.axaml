@@ -118,7 +118,7 @@
               </StackPanel>
             </StackPanel>
             <Button Grid.Column="1" Content="Release notes" Classes="secondary" VerticalAlignment="Center"
-                    IsVisible="{Binding CanInstallUpdate}"
+                    IsVisible="{Binding CanOpenReleaseNotes}"
                     Command="{Binding OpenReleaseNotesCommand}" />
             <Button Grid.Column="2" Content="Install update" Classes="accent" VerticalAlignment="Center"
                     IsVisible="{Binding CanInstallUpdate}"

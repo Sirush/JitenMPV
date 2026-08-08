@@ -272,6 +272,7 @@ public partial class SettingsViewModel : ViewModelBase
     [NotifyPropertyChangedFor(nameof(IsUpdateBannerVisible))]
     [NotifyPropertyChangedFor(nameof(UpdateBannerText))]
     [NotifyPropertyChangedFor(nameof(CanInstallUpdate))]
+    [NotifyPropertyChangedFor(nameof(CanOpenReleaseNotes))]
     private UpdateInfo? _availableUpdate;
 
     [ObservableProperty]
@@ -315,6 +316,8 @@ public partial class SettingsViewModel : ViewModelBase
         : "";
 
     public bool CanInstallUpdate => AvailableUpdate is not null && !IsUpdating && SelfUpdater.IsSupported;
+
+    public bool CanOpenReleaseNotes => AvailableUpdate is not null;
 
     private async Task CheckForUpdateAsync()
         => AvailableUpdate = await UpdateChecker.CheckAsync(UpdateCheckEnabled, CancellationToken.None);

@@ -283,7 +283,7 @@ public static class SelfUpdater
     /// Must match the asset names produced by .github/workflows/release.yml.
     private static string? AssetName()
     {
-        var arch = RuntimeInformation.OSArchitecture;
+        var arch = RuntimeInformation.ProcessArchitecture;
 
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
             return arch == Architecture.X64 ? "jiten-mpv-win-x64.zip" : null;
