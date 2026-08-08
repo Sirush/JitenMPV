@@ -93,6 +93,14 @@ tar -C "$TEMP" -xzf "$TEMP/$ASSET"
 [ -f "$TEMP/JitenMPV.App" ] || die "$ASSET did not contain JitenMPV.App"
 chmod +x "$TEMP/JitenMPV.App"
 
+# Gatekeeper on macOS 26 kills binaries whose ad-hoc signature was made on another machine
+# ("Killed: 9"); re-signing with this Mac's own identity is what it accepts. codesign is part
+# of the base system.
+if [ "$(uname -s)" = "Darwin" ]; then
+    codesign --force --sign - "$TEMP/JitenMPV.App" ||
+        echo "warning: re-signing failed; macOS may refuse to run JitenMPV" >&2
+fi
+
 if [ -n "${JITEN_MPV_MPV_CONFIG_DIR:-}" ]; then
     "$TEMP/JitenMPV.App" install --mpv-config-dir "$JITEN_MPV_MPV_CONFIG_DIR"
 else
