@@ -1,4 +1,13 @@
-# JitenMPV
+<h1 align="center"> JitenMPV </h1>
+
+
+<div align="center">
+  
+ [![GitHub downloads](https://img.shields.io/github/downloads/Sirush/JitenMPV/total?label=downloads&labelColor=27303D&color=0D1117&logo=github&logoColor=FFFFFF&style=flat)](https://github.com/Sirush/JitenMPV/releases)
+![star](https://img.shields.io/github/stars/Sirush/JitenMPV)
+ [![Discord server](https://img.shields.io/badge/Discord-join-5865F2?logo=discord&logoColor=white)](https://discord.gg/cZWM7b4wzk)
+ 
+</div>
 
 An mpv plugin that colours Japanese subtitles by how well you know each word, powered by [**Jiten**](https://jiten.moe).
 
