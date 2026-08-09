@@ -1,5 +1,4 @@
 using System.Reflection;
-using System.Runtime.InteropServices;
 using JitenMPV.Core.Config;
 using JitenMPV.Core.Fonts;
 
@@ -148,13 +147,15 @@ public static class Installer
         if (dryRun) return $"Would copy:           {source}";
 
         Directory.CreateDirectory(AppPaths.AppDir);
-        File.Copy(source, destination, overwrite: true);
 
-        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-            File.SetUnixFileMode(destination,
-                UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute |
-                UnixFileMode.GroupRead | UnixFileMode.GroupExecute |
-                UnixFileMode.OtherRead | UnixFileMode.OtherExecute);
+        // Staged and renamed rather than copied over: macOS caches code-signing verdicts per
+        // inode, so writing through an existing install would keep a rejected verdict that kills
+        // every launch. CleanupPreviousVersion removes a stray .new left by a failed install.
+        var staged = destination + ".new";
+        File.Copy(source, staged, overwrite: true);
+        ExecutableFile.SetExecutable(staged);
+        ExecutableFile.ResignAdHoc(staged);
+        File.Move(staged, destination, overwrite: true);
 
         return $"Program copied:       {destination}";
     }

@@ -196,8 +196,8 @@ public static class SelfUpdater
         var previous = target + ".old";
 
         File.Copy(source, staged, overwrite: true);
-        SetExecutable(staged);
-        ResignAdHoc(staged);
+        ExecutableFile.SetExecutable(staged);
+        ExecutableFile.ResignAdHoc(staged);
 
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
         {
@@ -246,38 +246,6 @@ public static class SelfUpdater
         {
             return false;
         }
-    }
-
-    /// Gatekeeper on macOS 26 kills binaries whose ad-hoc signature was made on another machine,
-    /// so the release's CI signature must be replaced with one made here.
-    private static void ResignAdHoc(string path)
-    {
-        if (!RuntimeInformation.IsOSPlatform(OSPlatform.OSX)) return;
-
-        try
-        {
-            using var process = Process.Start(new ProcessStartInfo("/usr/bin/codesign")
-            {
-                UseShellExecute = false,
-                CreateNoWindow = true,
-                ArgumentList = { "--force", "--sign", "-", path }
-            });
-            process?.WaitForExit((int)TimeSpan.FromSeconds(30).TotalMilliseconds);
-        }
-        catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or IOException)
-        {
-            // The CI signature stays in place; Macs that accept foreign ad-hoc signatures still run it.
-        }
-    }
-
-    private static void SetExecutable(string path)
-    {
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows)) return;
-
-        File.SetUnixFileMode(path,
-            UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute |
-            UnixFileMode.GroupRead | UnixFileMode.GroupExecute |
-            UnixFileMode.OtherRead | UnixFileMode.OtherExecute);
     }
 
     /// Must match the asset names produced by .github/workflows/release.yml.

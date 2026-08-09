@@ -83,6 +83,8 @@ codesign --force --sign - JitenMPV
 
 Recent macOS kills executables whose ad-hoc signature was made on another machine and only a signature made on your own Mac satisfies it. The install script above does this automatically. Browser downloads are additionally quarantined (macOS 15 removed the right-click-Open bypass); `xattr -d com.apple.quarantine JitenMPV` clears that, but clearing quarantine alone is not enough.
 
+If mpv still reports the plugin being killed after all of that (seen on macOS 26.6), grant mpv the right to run locally signed code: System Settings > Privacy & Security > Developer Tools, add mpv with the + button and enable it, then restart mpv. The permission must go to mpv itself — it is the process that launches the plugin, so exempting Terminal changes nothing.
+
 ### Where things go
 
 | | Windows | Linux and macOS |
