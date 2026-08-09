@@ -5,6 +5,7 @@ using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using JitenMPV.Core.Config;
 using JitenMPV.Core.Install;
+using JitenMPV.Core.Net;
 
 namespace JitenMPV.Core.Update;
 
@@ -302,7 +303,8 @@ public static class SelfUpdater
 
     private static HttpClient CreateClient()
     {
-        var client = new HttpClient { Timeout = TimeSpan.FromMinutes(10) };
+        var client = JitenHttp.CreateClient();
+        client.Timeout = TimeSpan.FromMinutes(10);
         client.DefaultRequestHeaders.UserAgent.ParseAdd("jiten-mpv");
         return client;
     }

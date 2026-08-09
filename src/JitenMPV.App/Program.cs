@@ -16,6 +16,7 @@ using JitenMPV.App.ViewModels;
 using JitenMPV.App.Views;
 using JitenMPV.Core.Config;
 using JitenMPV.Core.Install;
+using JitenMPV.Core.Net;
 using JitenMPV.Core.Plugin;
 using JitenMPV.Core.Update;
 using Microsoft.Extensions.Logging;
@@ -46,8 +47,13 @@ sealed class Program
                 AttachConsole(-1);
             Environment.ExitCode = RunInstall(args);
         }
+        else if (args.Length >= 1 && args[0] == JitenHttp.ProbeVerb)
+        {
+            Environment.ExitCode = JitenHttp.RunProbeAsync().GetAwaiter().GetResult();
+        }
         else
         {
+            JitenHttp.BeginProbe(Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance);
             BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
         }
     }
@@ -137,6 +143,8 @@ sealed class Program
             })
             .SetMinimumLevel(logLevel));
         var logger = loggerFactory.CreateLogger<PluginHost>();
+
+        JitenHttp.BeginProbe(logger);
 
         using var cts = new CancellationTokenSource();
         Console.CancelKeyPress += (_, e) =>

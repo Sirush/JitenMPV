@@ -150,7 +150,8 @@ public static class UpdateChecker
 
     private static HttpClient CreateClient()
     {
-        var client = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
+        var client = Net.JitenHttp.CreateClient();
+        client.Timeout = TimeSpan.FromSeconds(5);
         client.DefaultRequestHeaders.UserAgent.ParseAdd("jiten-mpv");
         client.DefaultRequestHeaders.Accept.ParseAdd("application/vnd.github+json");
         return client;
