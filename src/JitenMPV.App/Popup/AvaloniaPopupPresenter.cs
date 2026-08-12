@@ -71,6 +71,7 @@ public sealed class AvaloniaPopupPresenter : IPopupPresenter
     {
         var (revision, operation) = BeginPopupOperation(ct);
         var operationToken = operation.Token;
+        var provisionalShow = false;
         CancelQueuedPosition();
 
         try
@@ -81,6 +82,10 @@ public sealed class AvaloniaPopupPresenter : IPopupPresenter
                 return;
 
             var window = EnsureWindow();
+            provisionalShow = OperatingSystem.IsMacOS()
+                              && window.IsVisible
+                              && window.Opacity == 0
+                              && !_isVisible;
             _positionMode = data.PositionMode;
             _fixedAnchor = data.FixedAnchor;
             _offsetPx = data.OffsetPx;
@@ -89,7 +94,9 @@ public sealed class AvaloniaPopupPresenter : IPopupPresenter
             _viewModel!.Update(data);
             ApplyFontScale(data.FontScale);
             ApplyMaxWidth(data.MaxWidthPx);
-            if (!OperatingSystem.IsMacOS() || window.IsVisible)
+            var needsNativeLayout = OperatingSystem.IsMacOS()
+                                    && !window.IsVisible;
+            if (!needsNativeLayout)
                 MeasurePopup(window);
 
             await _backend.PrepareAsync(
@@ -98,24 +105,32 @@ public sealed class AvaloniaPopupPresenter : IPopupPresenter
             if (!IsCurrent(revision, window, operationToken))
                 return;
 
+            if (needsNativeLayout)
+            {
+                window.Opacity = 0;
+                window.Show();
+                provisionalShow = true;
+
+                // Cocoa determines a SizeToContent top-level's native bounds when it is mapped.
+                // Keep the provisional native window transparent until it has been placed using
+                // the resulting size, so its default mapping position never flashes onscreen.
+                await Dispatcher.UIThread.InvokeAsync(
+                    static () => { }, DispatcherPriority.Render);
+            }
+
+            if (!IsCurrent(revision, window, operationToken))
+                return;
+
             await PositionWindowAsync(window, pointer, operationToken);
+
             if (!IsCurrent(revision, window, operationToken))
                 return;
 
             if (!window.IsVisible)
                 window.Show();
-
-            if (!IsCurrent(revision, window, operationToken))
-                return;
+            window.Opacity = 1;
 
             _isVisible = true;
-
-            // Measuring a hidden SizeToContent Cocoa window makes its next native show inherit
-            // the screen-sized top-level constraint. Let Cocoa map it first, then use the normal
-            // serialized size/position pass once its content has an actual native size.
-            if (OperatingSystem.IsMacOS())
-                Dispatcher.UIThread.Post(
-                    QueuePositionWindow, DispatcherPriority.Render);
 
             // X11 can only apply transient-for after the native handle has been mapped. This does
             // not recalculate or move the popup and leaves Wayland's one-pass positioning intact.
@@ -129,6 +144,18 @@ public sealed class AvaloniaPopupPresenter : IPopupPresenter
         }
         finally
         {
+            if (provisionalShow
+                && !_isVisible
+                && _window is { } window
+                && (ReferenceEquals(_operationCts, operation)
+                    || _operationCts is null))
+            {
+                // No newer show adopted the reusable Cocoa window, so undo this operation's
+                // transparent provisional map even when its caller canceled the external token.
+                window.Hide();
+                window.Opacity = 1;
+            }
+
             EndPopupOperation(operation);
         }
     }

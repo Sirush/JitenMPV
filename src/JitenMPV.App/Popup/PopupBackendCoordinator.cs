@@ -121,7 +121,11 @@ internal sealed class PopupBackendCoordinator : IAsyncDisposable
             ? null
             : await _geometry.GetGeometryAsync(context, ct);
 
-        var screen = SelectScreen(window, context, discovered);
+        var globalCursor = !OperatingSystem.IsLinux()
+            ? CursorPositionHelper.GetCursorPosition()
+            : null;
+        var screen = SelectScreen(
+            window, context, discovered, globalCursor);
         if (screen is null)
             return;
 
@@ -139,7 +143,8 @@ internal sealed class PopupBackendCoordinator : IAsyncDisposable
             new SurfacePoint(pointer.X, pointer.Y),
             geometry,
             UsesNativeWayland,
-            discovered is not null);
+            discovered is not null,
+            globalCursor);
         var popupSize = UsesNativeWayland
             ? logicalPopupSize
             : new LogicalSize(
@@ -173,7 +178,8 @@ internal sealed class PopupBackendCoordinator : IAsyncDisposable
     private static Screen? SelectScreen(
         Window window,
         PopupWindowContext context,
-        MpvWindowGeometry? geometry)
+        MpvWindowGeometry? geometry,
+        PixelPoint? globalCursor)
     {
         if (geometry is not null)
         {
@@ -186,6 +192,10 @@ internal sealed class PopupBackendCoordinator : IAsyncDisposable
             if (byGeometry is not null)
                 return byGeometry;
         }
+
+        if (globalCursor is { } cursor
+            && window.Screens.ScreenFromPoint(cursor) is { } byCursor)
+            return byCursor;
 
         var byName = window.Screens.All.FirstOrDefault(screen =>
             screen.DisplayName is { } name
@@ -234,7 +244,8 @@ internal sealed class PopupBackendCoordinator : IAsyncDisposable
         SurfacePoint pointer,
         MpvWindowGeometry geometry,
         bool nativeWayland,
-        bool hasDiscoveredGeometry)
+        bool hasDiscoveredGeometry,
+        PixelPoint? globalCursor)
     {
         if (hasDiscoveredGeometry
             && (nativeWayland
@@ -246,8 +257,7 @@ internal sealed class PopupBackendCoordinator : IAsyncDisposable
                 geometry.ClientOrigin.Y + pointer.Y);
         }
 
-        if (!OperatingSystem.IsLinux()
-            && CursorPositionHelper.GetCursorPosition() is { } cursor)
+        if (globalCursor is { } cursor)
             return new GlobalLogicalPoint(cursor.X, cursor.Y);
 
         return null;

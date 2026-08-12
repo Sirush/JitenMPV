@@ -1,6 +1,7 @@
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Threading;
+using JitenMPV.App.Platform;
 using JitenMPV.App.Views;
 using JitenMPV.Core.Interaction;
 
@@ -19,6 +20,7 @@ public sealed class MediaOverwritePresenter : IMediaOverwritePresenter
             await using var reg = ct.Register(() => Dispatcher.UIThread.Post(dialog.Close));
 
             dialog.Show();
+            MacOsPluginIntegration.ActivateApplication();
             dialog.Activate();
             await closed.Task;
 

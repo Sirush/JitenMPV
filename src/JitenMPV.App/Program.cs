@@ -11,6 +11,7 @@ using Avalonia.Media;
 using Avalonia.Media.Fonts;
 using Avalonia.Threading;
 using JitenMPV.App.Media;
+using JitenMPV.App.Platform;
 using JitenMPV.App.Popup;
 using JitenMPV.App.ViewModels;
 using JitenMPV.App.Views;
@@ -162,6 +163,8 @@ sealed class Program
         var appBuilder = BuildAvaloniaApp(mpvBackend);
         appBuilder.Start((app, startArgs) =>
         {
+            MacOsPluginIntegration.ConfigureApplication();
+
             var lifetime = new ClassicDesktopStyleApplicationLifetime
             {
                 ShutdownMode = ShutdownMode.OnExplicitShutdown
@@ -190,6 +193,7 @@ sealed class Program
                 {
                     if (settingsWindow is not null)
                     {
+                        MacOsPluginIntegration.ActivateApplication();
                         settingsWindow.Activate();
                         return;
                     }
@@ -214,6 +218,7 @@ sealed class Program
                         };
 
                         settingsWindow.Show();
+                        MacOsPluginIntegration.ActivateApplication();
                         settingsWindow.Topmost = true;
                         settingsWindow.Activate();
                         settingsWindow.Topmost = false;
