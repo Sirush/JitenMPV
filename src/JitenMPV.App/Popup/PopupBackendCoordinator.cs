@@ -16,10 +16,10 @@ namespace JitenMPV.App.Popup;
 /// </summary>
 internal sealed class PopupBackendCoordinator : IAsyncDisposable
 {
-    private readonly PlasmaPopupSurfaceBackend _plasmaSurface;
-    private readonly KWinMpvWindowGeometryProvider _kwinGeometry;
-    private readonly X11MpvWindowGeometryProvider _x11Geometry = new();
-    private readonly X11PopupSurfaceBackend _x11Surface = new();
+    private readonly PlasmaPopupSurfaceBackend? _plasmaSurface;
+    private readonly KWinMpvWindowGeometryProvider? _kwinGeometry;
+    private readonly X11MpvWindowGeometryProvider? _x11Geometry;
+    private readonly X11PopupSurfaceBackend? _x11Surface;
     private readonly GenericPopupSurfaceBackend _genericSurface = new();
 
     private IPopupSurfaceBackend _surface;
@@ -27,10 +27,15 @@ internal sealed class PopupBackendCoordinator : IAsyncDisposable
 
     public PopupBackendCoordinator()
     {
+        _surface = _genericSurface;
+        if (!OperatingSystem.IsLinux())
+            return;
+
         var plasmaConnections = new PlasmaWaylandConnectionStore();
         _plasmaSurface = new PlasmaPopupSurfaceBackend(plasmaConnections);
         _kwinGeometry = new KWinMpvWindowGeometryProvider(plasmaConnections);
-        _surface = _genericSurface;
+        _x11Geometry = new X11MpvWindowGeometryProvider();
+        _x11Surface = new X11PopupSurfaceBackend();
         _kwinGeometry.GeometryChanged += () => GeometryChanged?.Invoke();
     }
 
@@ -50,24 +55,30 @@ internal sealed class PopupBackendCoordinator : IAsyncDisposable
     // Until Avalonia exposes wl_surface destruction as a supported lifecycle hook, closing is the
     // only safe way to guarantee Plasma metadata dies before the surface it decorates.
     public bool RequiresWindowRecreationAfterHide =>
-        UsesNativeWayland && ReferenceEquals(_surface, _plasmaSurface);
+        UsesNativeWayland
+        && _plasmaSurface is not null
+        && ReferenceEquals(_surface, _plasmaSurface);
 
     public async ValueTask PrepareAsync(
         Window window,
         PopupWindowContext context,
         CancellationToken ct)
     {
-        UsesNativeWayland = WaylandSurfaceInterop.IsNativeWayland(window);
-        _x11Surface.UpdateContext(context);
+        UsesNativeWayland = OperatingSystem.IsLinux()
+                            && WaylandSurfaceInterop.IsNativeWayland(window);
+        _x11Surface?.UpdateContext(context);
 
         if (UsesNativeWayland)
         {
-            await _plasmaSurface.PrepareAsync(window, ct);
-            if (_plasmaSurface.IsSupported
-                && _kwinGeometry.Status == GeometryProviderStatus.Ready)
+            // Linux construction creates these as one matched protocol session.
+            var plasmaSurface = _plasmaSurface!;
+            var kwinGeometry = _kwinGeometry!;
+            await plasmaSurface.PrepareAsync(window, ct);
+            if (plasmaSurface.IsSupported
+                && kwinGeometry.Status == GeometryProviderStatus.Ready)
             {
-                _surface = _plasmaSurface;
-                _geometry = _kwinGeometry;
+                _surface = plasmaSurface;
+                _geometry = kwinGeometry;
                 SupportLevel = PopupSupportLevel.Full;
                 return;
             }
@@ -78,10 +89,11 @@ internal sealed class PopupBackendCoordinator : IAsyncDisposable
             return;
         }
 
-        if (context.Backend == MpvWindowBackend.X11
-            || context.WindowId is > 0)
+        if (OperatingSystem.IsLinux()
+            && (context.Backend == MpvWindowBackend.X11
+                || context.WindowId is > 0))
         {
-            _surface = _x11Surface;
+            _surface = _x11Surface!;
             _geometry = _x11Geometry;
             SupportLevel = PopupSupportLevel.Full;
             await _surface.PrepareAsync(window, ct);
@@ -90,7 +102,9 @@ internal sealed class PopupBackendCoordinator : IAsyncDisposable
 
         _surface = _genericSurface;
         _geometry = null;
-        SupportLevel = PopupSupportLevel.Approximate;
+        SupportLevel = OperatingSystem.IsLinux()
+            ? PopupSupportLevel.Approximate
+            : PopupSupportLevel.Full;
         await _surface.PrepareAsync(window, ct);
     }
 
@@ -145,10 +159,14 @@ internal sealed class PopupBackendCoordinator : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
-        await _kwinGeometry.DisposeAsync();
-        await _plasmaSurface.DisposeAsync();
-        await _x11Geometry.DisposeAsync();
-        await _x11Surface.DisposeAsync();
+        if (_kwinGeometry is not null)
+            await _kwinGeometry.DisposeAsync();
+        if (_plasmaSurface is not null)
+            await _plasmaSurface.DisposeAsync();
+        if (_x11Geometry is not null)
+            await _x11Geometry.DisposeAsync();
+        if (_x11Surface is not null)
+            await _x11Surface.DisposeAsync();
         await _genericSurface.DisposeAsync();
     }
 

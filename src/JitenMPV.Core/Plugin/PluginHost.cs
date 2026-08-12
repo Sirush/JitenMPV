@@ -582,7 +582,8 @@ public sealed class PluginHost(
             var processIdTask = ipcClient.GetPropertyAsync<int?>("pid", ct);
             var backendTask = ipcClient.GetPropertyAsync<string?>(
                 "current-gpu-context", ct);
-            var appIdTask = _mpvWaylandAppId is null
+            var appIdTask = OperatingSystem.IsLinux()
+                            && _mpvWaylandAppId is null
                 ? ipcClient.GetPropertyAsync<string?>("wayland-app-id", ct)
                 : Task.FromResult<string?>(_mpvWaylandAppId);
             osd.Update(await widthTask, await heightTask);

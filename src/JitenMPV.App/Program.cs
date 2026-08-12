@@ -176,7 +176,9 @@ sealed class Program
                 presenter,
                 reviewPresenter,
                 overwritePresenter,
-                args.Length >= 3 && !string.IsNullOrWhiteSpace(args[2])
+                OperatingSystem.IsLinux()
+                && args.Length >= 3
+                && !string.IsNullOrWhiteSpace(args[2])
                     ? args[2]
                     : null);
             SettingsWindow? settingsWindow = null;

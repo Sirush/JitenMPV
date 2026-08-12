@@ -89,7 +89,8 @@ public sealed class AvaloniaPopupPresenter : IPopupPresenter
             _viewModel!.Update(data);
             ApplyFontScale(data.FontScale);
             ApplyMaxWidth(data.MaxWidthPx);
-            MeasurePopup(window);
+            if (!OperatingSystem.IsMacOS() || window.IsVisible)
+                MeasurePopup(window);
 
             await _backend.PrepareAsync(
                 window, _windowContext, operationToken);
@@ -108,6 +109,13 @@ public sealed class AvaloniaPopupPresenter : IPopupPresenter
                 return;
 
             _isVisible = true;
+
+            // Measuring a hidden SizeToContent Cocoa window makes its next native show inherit
+            // the screen-sized top-level constraint. Let Cocoa map it first, then use the normal
+            // serialized size/position pass once its content has an actual native size.
+            if (OperatingSystem.IsMacOS())
+                Dispatcher.UIThread.Post(
+                    QueuePositionWindow, DispatcherPriority.Render);
 
             // X11 can only apply transient-for after the native handle has been mapped. This does
             // not recalculate or move the popup and leaves Wayland's one-pass positioning intact.
@@ -278,13 +286,19 @@ public sealed class AvaloniaPopupPresenter : IPopupPresenter
     private static void MeasurePopup(DictionaryPopupWindow window)
     {
         window.Measure(Size.Infinity);
-        if (window.DesiredSize.Width > 0 && window.DesiredSize.Height > 0)
+        if (!OperatingSystem.IsMacOS()
+            && window.DesiredSize.Width > 0
+            && window.DesiredSize.Height > 0)
+        {
             window.Arrange(new Rect(window.DesiredSize));
+        }
     }
 
     private static LogicalSize PopupSize(DictionaryPopupWindow window)
     {
-        var size = window.DesiredSize;
+        var size = OperatingSystem.IsMacOS() && window.IsVisible
+            ? window.Bounds.Size
+            : window.DesiredSize;
         if (size.Width <= 0 || size.Height <= 0)
             size = window.Bounds.Size;
         return new LogicalSize(
