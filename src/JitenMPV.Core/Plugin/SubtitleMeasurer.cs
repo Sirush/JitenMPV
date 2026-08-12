@@ -24,6 +24,11 @@ public sealed class SubtitleMeasurer(PluginSettings settings, OsdState osd)
     private readonly BoundedCache<string, List<WordRect>> _cache = new(2000);
     private int _lastOsdVersion = -1;
 
+    /// Distance from one line's top to the next. mpv reports a line's rendered box instead, which
+    /// runs taller than this, so anything positioning against a line's lower edge needs the pitch.
+    /// Depends only on the font, so it survives every subtitle until the font or geometry changes.
+    public double? LinePitch { get; private set; }
+
     public void UpdateSettings(PluginSettings newSettings)
     {
         var old = _settings;
@@ -37,6 +42,7 @@ public sealed class SubtitleMeasurer(PluginSettings settings, OsdState osd)
             old.SubtitleMarginY != newSettings.SubtitleMarginY)
         {
             _cache.Clear();
+            LinePitch = null;
         }
     }
 
@@ -47,6 +53,7 @@ public sealed class SubtitleMeasurer(PluginSettings settings, OsdState osd)
         if (osd.Version != _lastOsdVersion)
         {
             _cache.Clear();
+            LinePitch = null;
             _lastOsdVersion = osd.Version;
         }
 
@@ -127,7 +134,24 @@ public sealed class SubtitleMeasurer(PluginSettings settings, OsdState osd)
         if (lastIdx > firstIdx)
         {
             float derived = (float)((fullBounds.Height - lineInk[lastIdx]!.Height) / (lastIdx - firstIdx));
-            if (derived > 1f) lineSpacing = derived;
+            if (derived > 1f)
+            {
+                lineSpacing = derived;
+                LinePitch = derived;
+            }
+        }
+
+        // A one-line subtitle carries no spacing of its own to read, so it is measured against a
+        // stacked pair of the same glyph, whose extra height is exactly one line.
+        if (LinePitch is null)
+        {
+            var probeTags = MeasureTags();
+            var oneLine = await ipc.MeasureOverlayAsync(AllocId(), $"{probeTags}{SentinelGlyph}", ct);
+            var twoLines = await ipc.MeasureOverlayAsync(
+                AllocId(), $@"{probeTags}{SentinelGlyph}\N{SentinelGlyph}", ct);
+
+            if (oneLine is not null && twoLines is not null && twoLines.Height - oneLine.Height > 1)
+                LinePitch = twoLines.Height - oneLine.Height;
         }
 
         var linePrefixes = new List<int>?[lines.Count];

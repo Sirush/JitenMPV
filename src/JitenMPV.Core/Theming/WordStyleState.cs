@@ -33,6 +33,14 @@ public sealed class WordStyleState
     public bool? Bold { get; init; }
     public bool? Italic { get; init; }
     public bool? Underline { get; init; }
+
+    /// Set to draw the underline as a bar on the underline overlay instead of as ASS `\u`, which
+    /// can only paint in the primary colour. Null keeps the underline the colour of the text.
+    public string? UnderlineColor { get; init; }
+
+    /// Bar height in overlay units; ignored unless UnderlineColor is set.
+    public double? UnderlineThickness { get; init; }
+
     public bool? Strikethrough { get; init; }
     public int? ScaleX { get; init; }
     public int? ScaleY { get; init; }
@@ -51,6 +59,8 @@ public sealed class WordStyleState
         Bold = Bold ?? baseStyle.Bold,
         Italic = Italic ?? baseStyle.Italic,
         Underline = Underline ?? baseStyle.Underline,
+        UnderlineColor = UnderlineColor ?? baseStyle.UnderlineColor,
+        UnderlineThickness = UnderlineThickness ?? baseStyle.UnderlineThickness,
         Strikethrough = Strikethrough ?? baseStyle.Strikethrough,
         ScaleX = ScaleX ?? baseStyle.ScaleX,
         ScaleY = ScaleY ?? baseStyle.ScaleY

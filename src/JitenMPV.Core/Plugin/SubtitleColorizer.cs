@@ -5,6 +5,11 @@ using Microsoft.Extensions.Logging;
 
 namespace JitenMPV.Core.Plugin;
 
+public sealed record ColorizedSubtitle(
+    string Ass,
+    ParseCacheEntry? Entry,
+    IReadOnlyDictionary<(int WordId, byte ReadingIndex), UnderlineBar>? Underlines);
+
 public sealed class SubtitleColorizer(
     JitenApiClient api,
     ParseCache cache,
@@ -22,10 +27,10 @@ public sealed class SubtitleColorizer(
         _detectors = new DetectorSnapshot(iPlusOne, freqMarker);
     }
 
-    public async Task<(string Ass, ParseCacheEntry? Entry)> ColorizeAsync(string subtitleText, CancellationToken ct)
+    public async Task<ColorizedSubtitle> ColorizeAsync(string subtitleText, CancellationToken ct)
         => await ColorizeWithRevealAsync(subtitleText, null, ct);
 
-    public async Task<(string Ass, ParseCacheEntry? Entry)> ColorizeWithRevealAsync(
+    public async Task<ColorizedSubtitle> ColorizeWithRevealAsync(
         string subtitleText,
         HashSet<(int WordId, byte ReadingIndex)>? revealedWords,
         CancellationToken ct)
@@ -33,7 +38,7 @@ public sealed class SubtitleColorizer(
         try
         {
             if (!JapaneseDetector.ContainsJapanese(subtitleText))
-                return (renderer.RenderPlain(subtitleText), null);
+                return new ColorizedSubtitle(renderer.RenderPlain(subtitleText), null, null);
 
             var entry = cache.GetOrDefault(subtitleText);
             if (entry is null)
@@ -47,12 +52,14 @@ public sealed class SubtitleColorizer(
             var iPlusOne = det.IPlusOne?.Detect(entry.Tokens, entry.VocabStates, entry.FrequencyRanks);
             var freqWords = det.Frequency?.Mark(entry.Tokens, entry.VocabStates, entry.FrequencyRanks);
 
-            return (renderer.RenderSubtitle(subtitleText, entry, iPlusOne, freqWords, revealedWords), entry);
+            var (ass, underlines) = renderer.RenderSubtitle(
+                subtitleText, entry, iPlusOne, freqWords, revealedWords);
+            return new ColorizedSubtitle(ass, entry, underlines);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             logger.LogError(ex, "Failed to colorize subtitle, falling back to plain rendering");
-            return (renderer.RenderPlain(subtitleText), null);
+            return new ColorizedSubtitle(renderer.RenderPlain(subtitleText), null, null);
         }
     }
 }

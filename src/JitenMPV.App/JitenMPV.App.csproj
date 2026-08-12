@@ -1,7 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
     <PropertyGroup>
         <OutputType>WinExe</OutputType>
-        <TargetFramework>net9.0</TargetFramework>
+        <TargetFramework>net10.0</TargetFramework>
         <Nullable>enable</Nullable>
         <ApplicationManifest>app.manifest</ApplicationManifest>
         <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
@@ -36,6 +36,12 @@
     <ItemGroup>
         <Folder Include="Models\" />
         <AvaloniaResource Include="Assets\**" />
+    </ItemGroup>
+
+    <!-- TLS via Network.framework instead of the deprecated SecureTransport, which crashes the
+         process (native AV in the TLS handshake) on macOS 26. No effect outside Apple platforms. -->
+    <ItemGroup>
+        <RuntimeHostConfigurationOption Include="System.Net.Security.UseNetworkFramework" Value="true" />
     </ItemGroup>
 
     <ItemGroup>

@@ -272,7 +272,8 @@ public static class FfmpegInstaller
 
     private static HttpClient CreateClient()
     {
-        var client = new HttpClient { Timeout = TimeSpan.FromMinutes(10) };
+        var client = Net.JitenHttp.CreateClient();
+        client.Timeout = TimeSpan.FromMinutes(10);
         client.DefaultRequestHeaders.UserAgent.ParseAdd("jiten-mpv");
         return client;
     }

@@ -5,6 +5,7 @@ using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using JitenMPV.Core.Config;
 using JitenMPV.Core.Install;
+using JitenMPV.Core.Net;
 
 namespace JitenMPV.Core.Update;
 
@@ -161,7 +162,10 @@ public static class SelfUpdater
 
         return Directory
             .EnumerateFiles(unpacked, Installer.ExecutableName, SearchOption.AllDirectories)
-            .FirstOrDefault();
+            .FirstOrDefault()
+            ?? Directory
+                .EnumerateFiles(unpacked, "JitenMPV", SearchOption.AllDirectories)
+                .FirstOrDefault();
     }
 
     /// Installations made before single-file publishing left Skia, HarfBuzz and ANGLE beside the
@@ -193,7 +197,8 @@ public static class SelfUpdater
         var previous = target + ".old";
 
         File.Copy(source, staged, overwrite: true);
-        SetExecutable(staged);
+        ExecutableFile.SetExecutable(staged);
+        ExecutableFile.ResignAdHoc(staged);
 
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
         {
@@ -244,20 +249,10 @@ public static class SelfUpdater
         }
     }
 
-    private static void SetExecutable(string path)
-    {
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows)) return;
-
-        File.SetUnixFileMode(path,
-            UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute |
-            UnixFileMode.GroupRead | UnixFileMode.GroupExecute |
-            UnixFileMode.OtherRead | UnixFileMode.OtherExecute);
-    }
-
     /// Must match the asset names produced by .github/workflows/release.yml.
     private static string? AssetName()
     {
-        var arch = RuntimeInformation.OSArchitecture;
+        var arch = RuntimeInformation.ProcessArchitecture;
 
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
             return arch == Architecture.X64 ? "jiten-mpv-win-x64.zip" : null;
@@ -308,7 +303,8 @@ public static class SelfUpdater
 
     private static HttpClient CreateClient()
     {
-        var client = new HttpClient { Timeout = TimeSpan.FromMinutes(10) };
+        var client = JitenHttp.CreateClient();
+        client.Timeout = TimeSpan.FromMinutes(10);
         client.DefaultRequestHeaders.UserAgent.ParseAdd("jiten-mpv");
         return client;
     }

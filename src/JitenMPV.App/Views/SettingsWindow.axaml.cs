@@ -1,5 +1,6 @@
 using System;
 using System.ComponentModel;
+using System.Threading.Tasks;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using JitenMPV.App.ViewModels;
@@ -11,7 +12,8 @@ public partial class SettingsWindow : Window
 {
     public event Action<PluginSettings>? SettingsSaved;
 
-    private INotifyPropertyChanged? _subscribedVm;
+    private SettingsViewModel? _subscribedVm;
+    private bool _pendingSaveFlushed;
 
     public SettingsWindow()
     {
@@ -19,12 +21,20 @@ public partial class SettingsWindow : Window
         DataContextChanged += (_, _) =>
         {
             if (_subscribedVm is not null)
+            {
                 _subscribedVm.PropertyChanged -= OnViewModelPropertyChanged;
-            _subscribedVm = DataContext as INotifyPropertyChanged;
+                _subscribedVm.SettingsApplied -= OnSettingsApplied;
+            }
+            _subscribedVm = DataContext as SettingsViewModel;
             if (_subscribedVm is not null)
+            {
                 _subscribedVm.PropertyChanged += OnViewModelPropertyChanged;
+                _subscribedVm.SettingsApplied += OnSettingsApplied;
+            }
         };
     }
+
+    private void OnSettingsApplied(PluginSettings settings) => SettingsSaved?.Invoke(settings);
 
     private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
@@ -32,14 +42,24 @@ public partial class SettingsWindow : Window
             ContentScroll.Offset = default;
     }
 
-    private async void OnSave(object? sender, RoutedEventArgs e)
+    /// An edit still held by the autosave debounce would otherwise be lost to the close.
+    protected override void OnClosing(WindowClosingEventArgs e)
     {
-        if (DataContext is SettingsViewModel vm)
+        base.OnClosing(e);
+        if (e.Cancel || _pendingSaveFlushed) return;
+
+        if (_subscribedVm is { HasPendingAutoSave: true } vm)
         {
-            var settings = vm.ToPluginSettings();
-            await SettingsManager.SaveAsync(settings);
-            SettingsSaved?.Invoke(settings);
+            e.Cancel = true;
+            _ = FlushThenCloseAsync(vm);
         }
+    }
+
+    private async Task FlushThenCloseAsync(SettingsViewModel vm)
+    {
+        await vm.FlushPendingSaveAsync();
+        _pendingSaveFlushed = true;
+        Close();
     }
 
     private void OnClose(object? sender, RoutedEventArgs e)

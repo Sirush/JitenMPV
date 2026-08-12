@@ -3,6 +3,7 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
 using JitenMPV.Core.Api.Models;
+using JitenMPV.Core.Net;
 using Microsoft.Extensions.Logging;
 
 namespace JitenMPV.Core.Api;
@@ -17,10 +18,7 @@ public sealed class JitenApiClient
 
     /// Shared and never disposed: UpdateConnection swaps clients while requests may still be in
     /// flight, and disposing the client that owns the handler would abort them.
-    private static readonly SocketsHttpHandler SharedHandler = new()
-    {
-        PooledConnectionLifetime = TimeSpan.FromMinutes(5)
-    };
+    private static readonly HttpMessageHandler SharedHandler = JitenHttp.CreateHandler();
 
     /// A 4 MB animation on a slow uplink outlives the shared client's timeout, which is a hard cap
     /// no CancellationToken can extend, so the media path needs a client of its own.
@@ -41,6 +39,10 @@ public sealed class JitenApiClient
         _apiKey = apiKey;
         _http = BuildClient(apiKey, baseUrl, timeoutSeconds);
         _uploadHttp = BuildClient(apiKey, baseUrl, UploadTimeoutSeconds);
+
+        if (JitenHttp.UseCurl)
+            _logger.LogInformation(
+                "HTTP starts on the system curl until in-process TLS is verified (macOS workaround)");
     }
 
     public bool IsApiKeyRejected => _rejectedApiKey is not null && _rejectedApiKey == _apiKey;

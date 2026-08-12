@@ -13,7 +13,9 @@ public sealed class MiningReviewPresenter : IMiningReviewPresenter
     {
         return await Dispatcher.UIThread.InvokeAsync(async () =>
         {
-            using var preview = new WavPreviewPlayer();
+            using IAudioPreview preview = System.OperatingSystem.IsWindows()
+                ? new WavPreviewPlayer()
+                : new CliAudioPreview();
             var completion = new TaskCompletionSource<MiningReviewResult?>();
 
             var vm = new MiningReviewViewModel(data, preview);

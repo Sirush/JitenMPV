@@ -1,4 +1,13 @@
-# JitenMPV
+<h1 align="center"> JitenMPV </h1>
+
+
+<div align="center">
+
+ [![GitHub downloads](https://img.shields.io/github/downloads/Sirush/JitenMPV/total?label=downloads&labelColor=27303D&color=0D1117&logo=github&logoColor=FFFFFF&style=flat)](https://github.com/Sirush/JitenMPV/releases)
+![star](https://img.shields.io/github/stars/Sirush/JitenMPV)
+ [![Discord server](https://img.shields.io/badge/Discord-join-5865F2?logo=discord&logoColor=white)](https://discord.gg/cZWM7b4wzk)
+
+</div>
 
 An mpv plugin that colours Japanese subtitles by how well you know each word, powered by [**Jiten**](https://jiten.moe).
 
@@ -68,13 +77,21 @@ The install scripts download the latest release, check it against its published 
 
 Every release also carries a plain archive — `jiten-mpv-win-x64.zip` / `jiten-mpv-linux-x64.tar.gz` / `jiten-mpv-osx-*.tar.gz` — holding one self-contained executable, with no runtime to install. It is the same build the setup program and the scripts fetch.
 
-Download the archive for your platform from the [releases page](https://github.com/Sirush/JitenMPV/releases), extract it, and run `JitenMPV.App` with no arguments. It offers to install itself, showing the directory it will write the mpv script to.
+Download the archive for your platform from the [releases page](https://github.com/Sirush/JitenMPV/releases), extract it, and run the executable — `JitenMPV.App` on Windows and Linux, `JitenMPV` on macOS — with no arguments. It offers to install itself, showing the directory it will write the mpv script to.
 
 Each archive also contains `jiten-mpv.lua`. You never need it — the installer writes its own copy — but it is there if you would rather drop the script into `portable_config\scripts` yourself and keep everything under your own control.
 
 For scripted installs, `JitenMPV.App install` does the same without a window (`--mpv-config-dir <path>`, `--dry-run`, `--quiet`). On Windows the prompt returns before it finishes, since the executable has no console of its own.
 
-On macOS, download with `curl` rather than a browser. Browser downloads are quarantined and macOS 15 removed the right-click-Open bypass; if you already have a quarantined copy, `xattr -d com.apple.quarantine JitenMPV.App` clears it.
+On macOS, download with `curl` rather than a browser, and re-sign the extracted binary before running it:
+
+```sh
+codesign --force --sign - JitenMPV
+```
+
+Recent macOS kills executables whose ad-hoc signature was made on another machine and only a signature made on your own Mac satisfies it. The install script above does this automatically. Browser downloads are additionally quarantined (macOS 15 removed the right-click-Open bypass); `xattr -d com.apple.quarantine JitenMPV` clears that, but clearing quarantine alone is not enough.
+
+If mpv still reports the plugin being killed after all of that (seen on macOS 26.6), grant mpv the right to run locally signed code: System Settings > Privacy & Security > Developer Tools, add mpv with the + button and enable it, then restart mpv. The permission must go to mpv itself — it is the process that launches the plugin, so exempting Terminal changes nothing.
 
 ### Where things go
 

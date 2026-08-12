@@ -34,7 +34,9 @@ public static class AssTagBuilder
 
         sb.Append(style.Bold == true ? "\\b1" : "\\b0");
         sb.Append(style.Italic == true ? "\\i1" : "\\i0");
-        sb.Append(style.Underline == true ? "\\u1" : "\\u0");
+        // A coloured underline is drawn as a bar on the underline overlay; emitting \u as well would
+        // stack a second line under it in the text colour.
+        sb.Append(style.Underline == true && style.UnderlineColor is null ? "\\u1" : "\\u0");
         sb.Append(style.Strikethrough == true ? "\\s1" : "\\s0");
 
         if (style.ScaleX is { } sx and not 100)

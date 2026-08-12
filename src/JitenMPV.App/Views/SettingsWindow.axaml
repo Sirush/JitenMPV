@@ -73,6 +73,14 @@
       <Setter Property="Background" Value="#27272a" />
       <Setter Property="Foreground" Value="#d4d4d8" />
     </Style>
+
+    <Style Selector="Border.save-badge">
+      <Setter Property="Transitions">
+        <Transitions>
+          <DoubleTransition Property="Opacity" Duration="0:0:0.25" />
+        </Transitions>
+      </Setter>
+    </Style>
     <Style Selector="Button.secondary:pointerover /template/ ContentPresenter#PART_ContentPresenter">
       <Setter Property="Background" Value="#3f3f46" />
     </Style>
@@ -118,7 +126,7 @@
               </StackPanel>
             </StackPanel>
             <Button Grid.Column="1" Content="Release notes" Classes="secondary" VerticalAlignment="Center"
-                    IsVisible="{Binding CanInstallUpdate}"
+                    IsVisible="{Binding CanOpenReleaseNotes}"
                     Command="{Binding OpenReleaseNotesCommand}" />
             <Button Grid.Column="2" Content="Install update" Classes="accent" VerticalAlignment="Center"
                     IsVisible="{Binding CanInstallUpdate}"
@@ -324,7 +332,7 @@
                           <!-- Colors -->
                           <StackPanel Spacing="8">
                             <TextBlock Text="COLORS" Classes="section-header" />
-                            <Grid ColumnDefinitions="90,*" RowDefinitions="Auto,Auto,Auto" RowSpacing="8">
+                            <Grid ColumnDefinitions="90,*" RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="8">
                               <TextBlock Text="Text" VerticalAlignment="Center" Foreground="#a1a1aa" />
                               <ColorPicker Grid.Column="1" IsAlphaVisible="False"
                                            Color="{Binding TextColor, Converter={StaticResource HexToColor}}"
@@ -342,13 +350,18 @@
                                              IsAlphaVisible="False"
                                              IsEnabled="{Binding HasShadow}" HorizontalAlignment="Left" />
                               </StackPanel>
+
+                              <TextBlock Grid.Row="3" Text="Underline" VerticalAlignment="Center" Foreground="#a1a1aa" />
+                              <ColorPicker Grid.Row="3" Grid.Column="1" IsAlphaVisible="False"
+                                           Color="{Binding UnderlineColor, Converter={StaticResource HexToColor}}"
+                                           IsEnabled="{Binding Underline}" HorizontalAlignment="Left" />
                             </Grid>
                           </StackPanel>
 
                           <!-- Sizes -->
                           <StackPanel Spacing="8">
                             <TextBlock Text="SIZES" Classes="section-header" />
-                            <Grid ColumnDefinitions="90,*" RowDefinitions="Auto,Auto" RowSpacing="8">
+                            <Grid ColumnDefinitions="90,*" RowDefinitions="Auto,Auto,Auto" RowSpacing="8">
                               <TextBlock Text="Outline" VerticalAlignment="Center" Foreground="#a1a1aa" />
                               <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
                                 <Slider Value="{Binding OutlineSize}" Minimum="0" Maximum="10" Width="200"
@@ -363,6 +376,15 @@
                                         IsEnabled="{Binding HasShadow}"
                                         TickFrequency="0.5" IsSnapToTickEnabled="True" />
                                 <TextBlock Text="{Binding ShadowDepth, StringFormat='{}{0:F1}'}"
+                                           VerticalAlignment="Center" Width="30" Foreground="#ffffff" />
+                              </StackPanel>
+
+                              <TextBlock Grid.Row="2" Text="Underline" VerticalAlignment="Center" Foreground="#a1a1aa" />
+                              <StackPanel Grid.Row="2" Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                                <Slider Value="{Binding UnderlineThickness}" Minimum="1" Maximum="10" Width="200"
+                                        IsEnabled="{Binding Underline}"
+                                        TickFrequency="0.5" IsSnapToTickEnabled="True" />
+                                <TextBlock Text="{Binding UnderlineThickness, StringFormat='{}{0:F1}'}"
                                            VerticalAlignment="Center" Width="30" Foreground="#ffffff" />
                               </StackPanel>
                             </Grid>
@@ -1232,11 +1254,24 @@
                 Command="{Binding ResetSectionCommand}" />
         <TextBlock Grid.Column="1" Text="{Binding VersionLabel}" Margin="12,0,0,0"
                    VerticalAlignment="Center" FontSize="11" Foreground="#52525b" />
+
+        <Grid Grid.Column="2" ColumnDefinitions="*,Auto" Margin="12,0,16,0" VerticalAlignment="Center">
+          <Border Classes="save-badge" Opacity="{Binding SaveBadgeOpacity}"
+                  HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,12,0"
+                  Background="#18181b" BorderBrush="#27272a" BorderThickness="1"
+                  CornerRadius="9" Padding="9,2" ToolTip.Tip="{Binding SaveBadgeText}">
+            <TextBlock Text="{Binding SaveBadgeText}" FontSize="11" TextTrimming="CharacterEllipsis"
+                       Foreground="{Binding SaveBadgeColor, Converter={StaticResource StringToBrush}}" />
+          </Border>
+          <CheckBox Grid.Column="1" Content="Auto-save" IsChecked="{Binding AutoSaveEnabled}" FontSize="12"
+                    ToolTip.Tip="Saves and applies changes shortly after you stop editing" />
+        </Grid>
+
         <Button Grid.Column="3" Content="Close" IsCancel="True"
                 Classes="secondary"
                 Click="OnClose" Margin="0,0,8,0" />
         <Button Grid.Column="4" Content="Save"
-                Click="OnSave" Classes="accent" />
+                Command="{Binding SaveCommand}" Classes="accent" />
       </Grid>
     </Border>
   </Grid>

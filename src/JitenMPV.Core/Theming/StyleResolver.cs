@@ -50,9 +50,10 @@ public sealed class StyleResolver
         IReadOnlyDictionary<PitchClass, WordStyleState>? pitchStyles)
     {
         // libass blurs the border bitmap whenever one exists and leaves the fill sharp, so the
-        // outline and shadow have to go for \blur to reach the glyph itself.
+        // outline and shadow have to go for \blur to reach the glyph itself. Underlining is dropped
+        // because a bar lives on an unblurred overlay and would spell out the state being hidden.
         var blurOn = blurStates is not null
-            ? new WordStyleState { Blur = blurStrength, OutlineSize = 0, ShadowDepth = 0 }
+            ? new WordStyleState { Blur = blurStrength, OutlineSize = 0, ShadowDepth = 0, Underline = false }
             : null;
         return new ThemeSnapshot(theme, iPlusOneOverride, frequencyOverride, pitchStyles, blurStates, blurOn);
     }
