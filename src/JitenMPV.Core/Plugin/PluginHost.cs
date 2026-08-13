@@ -52,6 +52,7 @@ public sealed class PluginHost(
     private volatile StatusOverlay? _statusOverlay;
     private volatile SubtitleMeasurer? _measurer;
     private volatile SubtitleLineJoiner? _lineJoiner;
+    private volatile SubtitleWrapResolver? _wrapResolver;
     private volatile JitenApiClient? _apiClient;
     private volatile MpvIpcClient? _ipcClient;
     private volatile KeybindManager? _keybindManager;
@@ -133,6 +134,7 @@ public sealed class PluginHost(
         _statusOverlay?.UpdateSettings(newSettings);
         _measurer?.UpdateSettings(newSettings);
         _lineJoiner?.UpdateSettings(newSettings);
+        _wrapResolver?.UpdateSettings(newSettings);
         _miningService?.UpdateSettings(newSettings);
         _rotationService?.UpdateSettings(newSettings);
         _mediaCapture?.UpdateSettings(newSettings);
@@ -178,6 +180,22 @@ public sealed class PluginHost(
                     _currentSubtitleText = text;
 
                     var (ass, entry, underlines) = await colorizer.ColorizeAsync(text, CancellationToken.None);
+
+                    // Wrapping re-bases the entry's tokens onto the new text rather than re-parsing,
+                    // so a word cut by a break keeps one entry, one colour and one hitbox per line.
+                    if (_wrapResolver is { } wrap && entry is not null)
+                    {
+                        var wrapped = await wrap.ResolveAsync(text, entry, ipc, CancellationToken.None);
+                        if (wrapped is not null)
+                        {
+                            if (_currentSubtitleRaw != raw) return;
+                            text = wrapped.Text;
+                            entry = wrapped.Entry;
+                            _currentSubtitleText = text;
+                            (ass, entry, underlines) = await colorizer.ColorizeWithParsedEntryAsync(
+                                text, entry, null, CancellationToken.None);
+                        }
+                    }
 
                     // A subtitle change during the round trip means this overlay and layout are
                     // stale; writing them would clobber the newer line's rendering and hit-test rects.
@@ -337,10 +355,12 @@ public sealed class PluginHost(
         var timeline = new SubtitleTimeline();
         var preParser = new PreParseService(
             apiClient, parseCache, logger, settings.PreparseBatchSize, timeline, settings);
-        var measurer = new SubtitleMeasurer(settings, osd);
+        var measurer = new SubtitleMeasurer(settings, osd, logger);
         _measurer = measurer;
         var lineJoiner = new SubtitleLineJoiner(settings, osd);
         _lineJoiner = lineJoiner;
+        var wrapResolver = new SubtitleWrapResolver(settings, osd, logger);
+        _wrapResolver = wrapResolver;
 
         var hitTest = new HitTestService();
         var blurManager = new BlurHoverManager(settings);
@@ -897,6 +917,23 @@ public sealed class PluginHost(
 
             var (ass, entry, underlines) = await colorizer.ColorizeAsync(display, ct);
             if (Superseded()) return;
+
+            // Wrapping re-bases the entry's tokens onto the new text rather than re-parsing, so a
+            // word cut by a break keeps one entry, one colour and one hitbox per line segment.
+            if (_wrapResolver is { } wrap && entry is not null)
+            {
+                var wrapped = await wrap.ResolveAsync(display, entry, ipcClient, ct);
+                if (wrapped is not null)
+                {
+                    if (Superseded() || _currentSubtitleRaw != text) return;
+                    display = wrapped.Text;
+                    entry = wrapped.Entry;
+                    _currentSubtitleText = display;
+                    (ass, entry, underlines) = await colorizer.ColorizeWithParsedEntryAsync(
+                        display, entry, null, ct);
+                    if (Superseded()) return;
+                }
+            }
 
             var showTask = ipcClient.ShowOverlayAsync(SubtitleOverlayId, ass, ct);
             var measureTask = entry is not null

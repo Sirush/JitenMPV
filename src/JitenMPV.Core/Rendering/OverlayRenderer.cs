@@ -77,7 +77,9 @@ public sealed class OverlayRenderer
     private static string BuildPreamble(PluginSettings settings, float resX)
     {
         int align = ClampAlign(settings.SubtitleAlignment);
-        return $@"{{\an{align}{BuildPositionTags(resX, settings, align)}{BuildStyleTags(settings)}}}";
+        // \q2 stops libass from wrapping on its own: SubtitleWrapResolver turns every wrap into
+        // an explicit \N beforehand, so the drawn text and the measured hitboxes always agree.
+        return $@"{{\an{align}{BuildPositionTags(resX, settings, align)}\q2{BuildStyleTags(settings)}}}";
     }
 
     /// Underlines carries the words whose resolved style asks for a coloured bar, since style
