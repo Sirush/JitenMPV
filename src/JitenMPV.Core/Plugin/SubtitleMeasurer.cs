@@ -210,10 +210,12 @@ public sealed class SubtitleMeasurer(PluginSettings settings, OsdState osd, ILog
             if (lineInk[li] is not { X1: > 0 } || lineCentered[li] is null) continue;
 
             var prefixTasks = new Dictionary<int, Task<OverlayBounds?>>();
+            var prefixTexts = new Dictionary<int, string>();
             foreach (var pos in prefixPositions)
             {
                 var prefixText = AssTagBuilder.EscapeText(lineText[..pos]);
                 if (sentinelInkX1 is not null) prefixText += SentinelGlyph;
+                prefixTexts[pos] = prefixText;
                 // Shift the measurement left so that prefixes extending past the play-res width
                 // are not clipped at the right edge. The shift cancels out in BuildAdvances.
                 string shiftedTags = $@"{{\an7\pos({MeasureOrigin - MeasureShift:F0},{MeasureOrigin})\q2{styleTags}\shad0\blur0}}";
@@ -222,12 +224,33 @@ public sealed class SubtitleMeasurer(PluginSettings settings, OsdState osd, ILog
 
             await Task.WhenAll(prefixTasks.Values);
 
-            var prefixBounds = new Dictionary<int, OverlayBounds?>();
+            // A short prefix's ink lands entirely off-canvas at the shifted pen and mpv reports
+            // null for it. Such a prefix can never reach the play-res right edge at the normal pen,
+            // so re-measure it there; its X1 is unshifted and needs no compensation.
+            var adjustedX1s = new Dictionary<int, float?>();
+            var retryPositions = new List<int>();
             foreach (var pos in prefixPositions)
-                prefixBounds[pos] = await prefixTasks[pos];
+            {
+                var bounds = await prefixTasks[pos];
+                if (bounds is null)
+                    retryPositions.Add(pos);
+                else
+                    adjustedX1s[pos] = (float)bounds.X1 + MeasureShift;
+            }
+
+            if (retryPositions.Count > 0)
+            {
+                var retryTasks = retryPositions
+                    .Select(pos => (Pos: pos, Task: ipc.MeasureOverlayAsync(
+                        AllocId(), $"{MeasureTags()}{prefixTexts[pos]}", ct)))
+                    .ToList();
+                await Task.WhenAll(retryTasks.Select(t => t.Task));
+                foreach (var (pos, task) in retryTasks)
+                    adjustedX1s[pos] = (float?)(await task)?.X1;
+            }
 
             float border = (float)s.BorderSize;
-            var advances = BuildAdvances(prefixBounds, sentinelInkX1, border, MeasureShift);
+            var advances = BuildAdvances(adjustedX1s, sentinelInkX1, border);
 
             // The centred line's ink left is offset from its pen origin by the first glyph's side
             // bearing (large for opening brackets) plus any leading whitespace; the an7 measurement
@@ -269,21 +292,21 @@ public sealed class SubtitleMeasurer(PluginSettings settings, OsdState osd, ILog
     /// pen origin. Prefixes are measured with the sentinel appended, so subtracting the sentinel's
     /// own ink right edge leaves exactly the pen position where the sentinel was placed. A null
     /// sentinel falls back to the bare ink right edge, which drifts by the last glyph's overhang.
-    /// The shift parameter undoes the leftward shift applied during measurement so that the
-    /// returned advances are in the same coordinate space as the line's pen origin.
+    /// The X1 values are already compensated for the measurement shift (or came from an unshifted
+    /// retry), so they are in the same coordinate space as the line's pen origin.
     internal static Dictionary<int, float> BuildAdvances(
-        IReadOnlyDictionary<int, OverlayBounds?> prefixBounds,
-        float? sentinelInkX1, float border, float shift = 0f)
+        IReadOnlyDictionary<int, float?> prefixX1s,
+        float? sentinelInkX1, float border)
     {
         var advances = new Dictionary<int, float> { [0] = border };
-        foreach (var (pos, bounds) in prefixBounds)
+        foreach (var (pos, x1) in prefixX1s)
         {
-            if (bounds is null)
+            if (x1 is null)
                 advances[pos] = border;
             else if (sentinelInkX1 is { } sx)
-                advances[pos] = (float)bounds.X1 + shift - sx + border;
+                advances[pos] = (float)x1 - sx + border;
             else
-                advances[pos] = (float)bounds.X1 + shift - MeasureOrigin;
+                advances[pos] = (float)x1 - MeasureOrigin;
         }
         return advances;
     }
