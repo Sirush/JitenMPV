@@ -2,11 +2,10 @@ using JitenMPV.Core.Cache;
 using JitenMPV.Core.Config;
 using JitenMPV.Core.Mpv;
 using JitenMPV.Core.Rendering;
-using Microsoft.Extensions.Logging;
 
 namespace JitenMPV.Core.Plugin;
 
-public sealed class SubtitleMeasurer(PluginSettings settings, OsdState osd, ILogger logger)
+public sealed class SubtitleMeasurer(PluginSettings settings, OsdState osd)
 {
     private const int MeasureId = 99;
 

@@ -355,7 +355,7 @@ public sealed class PluginHost(
         var timeline = new SubtitleTimeline();
         var preParser = new PreParseService(
             apiClient, parseCache, logger, settings.PreparseBatchSize, timeline, settings);
-        var measurer = new SubtitleMeasurer(settings, osd, logger);
+        var measurer = new SubtitleMeasurer(settings, osd);
         _measurer = measurer;
         var lineJoiner = new SubtitleLineJoiner(settings, osd);
         _lineJoiner = lineJoiner;
