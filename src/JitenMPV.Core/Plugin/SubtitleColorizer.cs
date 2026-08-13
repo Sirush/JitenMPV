@@ -40,6 +40,12 @@ public sealed class SubtitleColorizer(
     {
         try
         {
+            // The parse cache resolves by text, so a text that was re-based onto an existing parse
+            // (wrapped subtitles) must be registered under its own key as well. Otherwise later
+            // re-renders, mining and word actions resolve the current text to a fresh parse with
+            // entirely new word ids, or to nothing, and clicks land on hitboxes with no popup.
+            cache.Set(subtitleText, entry);
+
             var det = _detectors;
             var iPlusOne = det.IPlusOne?.Detect(entry.Tokens, entry.VocabStates, entry.FrequencyRanks);
             var freqWords = det.Frequency?.Mark(entry.Tokens, entry.VocabStates, entry.FrequencyRanks);
