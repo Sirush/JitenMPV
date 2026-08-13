@@ -4,7 +4,6 @@ using JitenMPV.Core.Cache;
 using JitenMPV.Core.Config;
 using JitenMPV.Core.Mpv;
 using JitenMPV.Core.Rendering;
-using Microsoft.Extensions.Logging;
 
 namespace JitenMPV.Core.Plugin;
 
@@ -18,7 +17,7 @@ namespace JitenMPV.Core.Plugin;
 /// measurer gives it one hitbox rect per line it occupies, all pointing at the same word. The
 /// overlay is then rendered with \q2, which disables automatic wrapping and keeps the drawn text
 /// identical to measurement.
-public sealed class SubtitleWrapResolver(PluginSettings settings, OsdState osd, ILogger logger)
+public sealed class SubtitleWrapResolver(PluginSettings settings, OsdState osd)
 {
     /// Base of this resolver's temporary measurement overlays. Grows upward with each probe like
     /// SubtitleMeasurer's block does; shared ids would only be a hazard if two measurement passes
@@ -111,10 +110,6 @@ public sealed class SubtitleWrapResolver(PluginSettings settings, OsdState osd, 
         }
 
         if (breaks.Count == 0) return (line, []);
-
-        logger.LogInformation(
-            "Wrapped subtitle line of {Chars} chars into {Lines} visual lines; breaks {Breaks}",
-            line.Length, breaks.Count + 1, string.Join(", ", breaks));
 
         // \n here is what AssTagBuilder later escapes to \N, so the drawn overlay carries the same
         // breaks these positions describe.

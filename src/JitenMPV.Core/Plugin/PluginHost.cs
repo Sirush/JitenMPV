@@ -359,7 +359,7 @@ public sealed class PluginHost(
         _measurer = measurer;
         var lineJoiner = new SubtitleLineJoiner(settings, osd);
         _lineJoiner = lineJoiner;
-        var wrapResolver = new SubtitleWrapResolver(settings, osd, logger);
+        var wrapResolver = new SubtitleWrapResolver(settings, osd);
         _wrapResolver = wrapResolver;
 
         var hitTest = new HitTestService();
