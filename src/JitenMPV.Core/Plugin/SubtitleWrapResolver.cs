@@ -137,13 +137,22 @@ public sealed class SubtitleWrapResolver(PluginSettings settings, OsdState osd)
         foreach (var token in entry.Tokens)
         {
             while (bi < breaks.Count && breaks[bi] <= token.Start) bi++;
+
+            // A break inside the token's span adds one character (the inserted \n) to the word in
+            // the wrapped text, so Length and End must grow by that count or the trailing glyphs
+            // fall off the styled run and off the token's last hitbox segment. bi is left alone so
+            // the next token's start still shifts by every break at or before it.
+            int bj = bi;
+            while (bj < breaks.Count && breaks[bj] < token.Start + token.Length) bj++;
+            int inside = bj - bi;
+
             shifted.Add(new ReaderToken
             {
                 WordId = token.WordId,
                 ReadingIndex = token.ReadingIndex,
                 Start = token.Start + bi,
-                End = token.End + bi,
-                Length = token.Length,
+                End = token.End + bi + inside,
+                Length = token.Length + inside,
                 Conjugations = token.Conjugations
             });
         }
