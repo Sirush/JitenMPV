@@ -23,11 +23,12 @@ public sealed class SubtitleMeasurer(PluginSettings settings, OsdState osd)
     /// Shift applied to prefix measurements so that long lines whose ink extends past the play-res
     /// width are not clipped at the right edge. Without this, the sentinel-based advance at the
     /// end of a full-width line gets clamped at the play-res, producing zero-width rects for the
-    /// last word.
+    /// last word. Any line reaching the measurer fits on one row, so the play-res is its ceiling
+    /// and this much headroom is enough; a prefix pushed off the left is re-measured unshifted.
     private const float MeasureShift = 300f;
 
     private volatile PluginSettings _settings = settings;
-    private readonly BoundedCache<string, List<WordRect>> _cache = new(2000);
+    private readonly BoundedCache<(string Text, bool SuppressWrap), List<WordRect>> _cache = new(2000);
     private int _lastOsdVersion = -1;
 
     /// Distance from one line's top to the next. mpv reports a line's rendered box instead, which
@@ -52,9 +53,11 @@ public sealed class SubtitleMeasurer(PluginSettings settings, OsdState osd)
         }
     }
 
+    /// <param name="suppressWrap">Has to match the mode the overlay is drawn in, or the line the
+    /// rects are placed against is not the line on screen.</param>
     public async Task<List<WordRect>> MeasureAsync(
         string text, ParseCacheEntry entry,
-        MpvIpcClient ipc, CancellationToken ct)
+        MpvIpcClient ipc, bool suppressWrap, CancellationToken ct)
     {
         if (osd.Version != _lastOsdVersion)
         {
@@ -63,17 +66,18 @@ public sealed class SubtitleMeasurer(PluginSettings settings, OsdState osd)
             _lastOsdVersion = osd.Version;
         }
 
-        var cached = _cache.GetOrDefault(text);
+        var cacheKey = (text, suppressWrap);
+        var cached = _cache.GetOrDefault(cacheKey);
         if (cached is not null)
             return cached;
 
-        var rects = await MeasureInternalAsync(text, entry, ipc, ct);
-        _cache.TryAdd(text, rects);
+        var rects = await MeasureInternalAsync(text, entry, ipc, suppressWrap, ct);
+        _cache.TryAdd(cacheKey, rects);
         return rects;
     }
 
     private async Task<List<WordRect>> MeasureInternalAsync(
-        string text, ParseCacheEntry entry, MpvIpcClient ipc, CancellationToken ct)
+        string text, ParseCacheEntry entry, MpvIpcClient ipc, bool suppressWrap, CancellationToken ct)
     {
         var s = _settings;
         var styleTags = OverlayRenderer.BuildStyleTags(s);
@@ -91,9 +95,13 @@ public sealed class SubtitleMeasurer(PluginSettings settings, OsdState osd)
         // or blur style out of the reported ink bounds.
         string MeasureTags() => $@"{{\an7\pos({MeasureOrigin:F0},{MeasureOrigin:F0})\q2{styleTags}\shad0\blur0}}";
 
-        // \q2 on the display probe too: the overlay it is measured against renders with \q2
-        // (SubtitleWrapResolver owns the wrapping), so fullBounds must match what displays.
-        var fullAss = $@"{{\an{align}{posTags}\q2{styleTags}\shad0\blur0}}{AssTagBuilder.EscapeText(text)}";
+        // The display probes carry the overlay's own wrap mode, so what they report is the block
+        // that is actually drawn: with \q2 the breaks are the ones SubtitleWrapResolver inserted,
+        // without it libass is still free to add its own and the measurement has to see them.
+        string wrapTag = suppressWrap ? @"\q2" : "";
+        string DisplayTags() => $@"{{\an{align}{posTags}{wrapTag}{styleTags}\shad0\blur0}}";
+
+        var fullAss = $"{DisplayTags()}{AssTagBuilder.EscapeText(text)}";
         var fullBounds = await ipc.MeasureOverlayAsync(AllocId(), fullAss, ct);
         if (fullBounds is null)
         {
@@ -112,7 +120,7 @@ public sealed class SubtitleMeasurer(PluginSettings settings, OsdState osd)
             var escapedLine = AssTagBuilder.EscapeText(lineText);
             inkTasks[li] = (
                 ipc.MeasureOverlayAsync(AllocId(), $"{MeasureTags()}{escapedLine}", ct),
-                ipc.MeasureOverlayAsync(AllocId(), $@"{{\an{align}{posTags}\q2{styleTags}\shad0\blur0}}{escapedLine}", ct));
+                ipc.MeasureOverlayAsync(AllocId(), $"{DisplayTags()}{escapedLine}", ct));
         }
 
         await Task.WhenAll(inkTasks.Values.SelectMany(t => new[] { t.Ink, t.Centered }));
@@ -169,7 +177,10 @@ public sealed class SubtitleMeasurer(PluginSettings settings, OsdState osd)
             if (lineText.Length == 0 || lineInk[li] is null || lineCentered[li] is null) continue;
 
             int lineEnd = lineStartIdx + lineText.Length;
-            var positions = new SortedSet<int> { 0, lineText.Length };
+
+            // The line's own end is always measured: a token running past the break clamps its
+            // segment there, and that segment needs an advance at the edge to close its rect.
+            var positions = new SortedSet<int> { lineText.Length };
             foreach (var token in entry.Tokens)
             {
                 int tokenEnd = token.Start + token.Length;

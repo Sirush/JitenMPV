@@ -179,47 +179,74 @@ public sealed class PluginHost(
                 var joiner = _lineJoiner;
                 _ = TaskHelper.RunSafe(async () =>
                 {
-                    var text = joiner is null
+                    var source = joiner is null
                         ? raw
                         : await joiner.ResolveAsync(raw, ipc, CancellationToken.None);
                     if (_currentSubtitleRaw != raw) return;
+
+                    var prepared = await PrepareSubtitleAsync(source, colorizer, ipc, CancellationToken.None);
+                    if (_currentSubtitleRaw != raw) return;
+
+                    var text = prepared.Display;
+                    var entry = prepared.Render.Entry;
                     _currentSubtitleText = text;
-
-                    var (ass, entry, underlines) = await colorizer.ColorizeAsync(text, CancellationToken.None);
-
-                    // Wrapping re-bases the entry's tokens onto the new text rather than re-parsing,
-                    // so a word cut by a break keeps one entry, one colour and one hitbox per line.
-                    if (_wrapResolver is { } wrap && entry is not null)
-                    {
-                        var wrapped = await wrap.ResolveAsync(text, entry, ipc, CancellationToken.None);
-                        if (wrapped is not null)
-                        {
-                            if (_currentSubtitleRaw != raw) return;
-                            text = wrapped.Text;
-                            entry = wrapped.Entry;
-                            _currentSubtitleText = text;
-                            (ass, entry, underlines) = await colorizer.ColorizeWithParsedEntryAsync(
-                                text, entry, null, CancellationToken.None);
-                        }
-                    }
 
                     // A subtitle change during the round trip means this overlay and layout are
                     // stale; writing them would clobber the newer line's rendering and hit-test rects.
                     if (!_subtitlesVisible || _currentSubtitleText != text) return;
-                    await ipc.ShowOverlayAsync(SubtitleOverlayId, ass, CancellationToken.None);
+                    await ipc.ShowOverlayAsync(SubtitleOverlayId, prepared.Render.Ass, CancellationToken.None);
 
                     if (entry is not null && measurer is not null && interaction is not null)
                     {
-                        var layout = await measurer.MeasureAsync(text, entry, ipc, CancellationToken.None);
+                        var layout = await measurer.MeasureAsync(
+                            text, entry, ipc, prepared.SuppressWrap, CancellationToken.None);
                         if (!_subtitlesVisible || _currentSubtitleText != text) return;
                         interaction.UpdateLayout(layout);
                         _lastLayout = layout;
-                        await RenderUnderlineBarsAsync(entry, underlines, layout, ipc, CancellationToken.None);
+                        await RenderUnderlineBarsAsync(
+                            entry, prepared.Render.Underlines, layout, ipc, CancellationToken.None);
                         await RenderDebugHitboxesAsync(layout, ipc, CancellationToken.None);
                     }
                 }, logger, "Re-render subtitle after settings change");
             }
         }
+    }
+
+    /// <param name="Display">The text drawn and measured, carrying the resolver's breaks.</param>
+    /// <param name="Source">The text without them, which is what a mined sentence and its surface
+    /// form are cut from: an inserted break lands inside a word as readily as between two.</param>
+    /// <param name="SourceEntry">The parse of <paramref name="Source"/>. Render.Entry is the same
+    /// tokens moved onto <paramref name="Display"/>, so the two agree on index, id and order.</param>
+    private sealed record PreparedSubtitle(
+        string Display, string Source, ColorizedSubtitle Render,
+        ParseCacheEntry? SourceEntry, bool SuppressWrap);
+
+    /// Resolves where the line wraps before colouring it, so the render knows whether it may claim
+    /// the wrapping for itself. A resolve that fails leaves libass wrapping: the alternative is a
+    /// long line drawn on one row and running off both edges of the screen.
+    private async Task<PreparedSubtitle> PrepareSubtitleAsync(
+        string source, SubtitleColorizer colorizer, MpvIpcClient ipc, CancellationToken ct)
+    {
+        var wrap = _wrapResolver is { } resolver
+            ? await resolver.ResolveAsync(source, ipc, ct)
+            : new WrapResult(WrapOutcome.NotNeeded, source, []);
+
+        bool suppressWrap = wrap.Outcome != WrapOutcome.Failed;
+        var colorized = await colorizer.ColorizeAsync(source, suppressWrap, ct);
+
+        if (wrap.Outcome != WrapOutcome.Resolved)
+            return new PreparedSubtitle(source, source, colorized, colorized.Entry, suppressWrap);
+
+        // Re-basing rather than re-parsing is what keeps a word the break cut in half one word:
+        // the same token, so one colour, and one hitbox rect per line it reaches across.
+        if (colorized.Entry is not { } sourceEntry)
+            return new PreparedSubtitle(
+                wrap.Text, source, colorizer.Plain(wrap.Text, suppressWrap), null, suppressWrap);
+
+        var rebased = SubtitleWrapResolver.Rebase(sourceEntry, wrap.Breaks);
+        var wrapped = await colorizer.ColorizeWithParsedEntryAsync(
+            wrap.Text, rebased, null, suppressWrap, ct);
+        return new PreparedSubtitle(wrap.Text, source, wrapped, sourceEntry, suppressWrap);
     }
 
     private IReadOnlyDictionary<KnownState, WordStyleState> ResolveTheme(string themeName)
@@ -822,7 +849,7 @@ public sealed class PluginHost(
             {
                 TaskHelper.CancelAndDispose(ref _currentSubtitleCts);
                 if (_interactionHandler is { } interaction)
-                    await interaction.OnSubtitleRenderedAsync(null, null, [], ct);
+                    await interaction.OnSubtitleRenderedAsync(null, null, null, [], ct);
                 await ipc.RemoveOverlayAsync(SubtitleOverlayId, ct);
                 await ipc.RemoveOverlayAsync(UnderlineOverlayId, ct);
                 await RenderDebugHitboxesAsync([], ipc, ct);
@@ -950,7 +977,7 @@ public sealed class PluginHost(
 
             if (string.IsNullOrWhiteSpace(text))
             {
-                await interaction.OnSubtitleRenderedAsync(null, null, [], ct);
+                await interaction.OnSubtitleRenderedAsync(null, null, null, [], ct);
                 if (Superseded()) return;
                 await ipcClient.RemoveOverlayAsync(SubtitleOverlayId, ct);
                 await ipcClient.RemoveOverlayAsync(UnderlineOverlayId, ct);
@@ -958,35 +985,21 @@ public sealed class PluginHost(
                 return;
             }
 
-            var display = await joiner.ResolveAsync(text, ipcClient, ct);
+            var source = await joiner.ResolveAsync(text, ipcClient, ct);
 
             // The fit measurement is a round trip, so a newer line can already own these fields.
             if (Superseded() || _currentSubtitleRaw != text) return;
+
+            var prepared = await PrepareSubtitleAsync(source, colorizer, ipcClient, ct);
+            if (Superseded() || _currentSubtitleRaw != text) return;
+
+            var display = prepared.Display;
+            var entry = prepared.Render.Entry;
             _currentSubtitleText = display;
 
-            var (ass, entry, underlines) = await colorizer.ColorizeAsync(display, ct);
-            if (Superseded()) return;
-
-            // Wrapping re-bases the entry's tokens onto the new text rather than re-parsing, so a
-            // word cut by a break keeps one entry, one colour and one hitbox per line segment.
-            if (_wrapResolver is { } wrap && entry is not null)
-            {
-                var wrapped = await wrap.ResolveAsync(display, entry, ipcClient, ct);
-                if (wrapped is not null)
-                {
-                    if (Superseded() || _currentSubtitleRaw != text) return;
-                    display = wrapped.Text;
-                    entry = wrapped.Entry;
-                    _currentSubtitleText = display;
-                    (ass, entry, underlines) = await colorizer.ColorizeWithParsedEntryAsync(
-                        display, entry, null, ct);
-                    if (Superseded()) return;
-                }
-            }
-
-            var showTask = ipcClient.ShowOverlayAsync(SubtitleOverlayId, ass, ct);
+            var showTask = ipcClient.ShowOverlayAsync(SubtitleOverlayId, prepared.Render.Ass, ct);
             var measureTask = entry is not null
-                ? measurer.MeasureAsync(display, entry, ipcClient, ct)
+                ? measurer.MeasureAsync(display, entry, ipcClient, prepared.SuppressWrap, ct)
                 : Task.FromResult<List<WordRect>>([]);
 
             await Task.WhenAll(showTask, measureTask);
@@ -994,14 +1007,16 @@ public sealed class PluginHost(
             var layout = measureTask.Result;
             _lastLayout = layout;
 
-            await RenderUnderlineBarsAsync(entry, underlines, layout, ipcClient, ct);
+            await RenderUnderlineBarsAsync(entry, prepared.Render.Underlines, layout, ipcClient, ct);
             await RenderDebugHitboxesAsync(layout, ipcClient, ct);
             if (Superseded()) return;
 
             if (geometryOnly)
-                await interaction.OnSubtitleLayoutChangedAsync(entry, layout, ct);
+                await interaction.OnSubtitleLayoutChangedAsync(
+                    display, prepared.SourceEntry, layout, ct, prepared.SuppressWrap);
             else
-                await interaction.OnSubtitleRenderedAsync(display, entry, layout, ct);
+                await interaction.OnSubtitleRenderedAsync(
+                    display, prepared.Source, prepared.SourceEntry, layout, ct, prepared.SuppressWrap);
         }
         catch (OperationCanceledException) { }
         catch (Exception ex)

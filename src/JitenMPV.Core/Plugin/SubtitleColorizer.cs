@@ -27,8 +27,9 @@ public sealed class SubtitleColorizer(
         _detectors = new DetectorSnapshot(iPlusOne, freqMarker);
     }
 
-    public async Task<ColorizedSubtitle> ColorizeAsync(string subtitleText, CancellationToken ct)
-        => await ColorizeWithRevealAsync(subtitleText, null, ct);
+    public async Task<ColorizedSubtitle> ColorizeAsync(
+        string subtitleText, bool suppressWrap, CancellationToken ct)
+        => await ColorizeWithRevealAsync(subtitleText, null, suppressWrap, ct);
 
     /// Renders from a parse that already happened, without hitting the dictionary again. Used to
     /// colour a text whose line breaks were inserted after the parse (wrapped subtitles): the same
@@ -36,6 +37,7 @@ public sealed class SubtitleColorizer(
     public Task<ColorizedSubtitle> ColorizeWithParsedEntryAsync(
         string subtitleText, ParseCacheEntry entry,
         HashSet<(int WordId, byte ReadingIndex)>? revealedWords,
+        bool suppressWrap,
         CancellationToken ct)
     {
         try
@@ -51,25 +53,32 @@ public sealed class SubtitleColorizer(
             var freqWords = det.Frequency?.Mark(entry.Tokens, entry.VocabStates, entry.FrequencyRanks);
 
             var (ass, underlines) = renderer.RenderSubtitle(
-                subtitleText, entry, iPlusOne, freqWords, revealedWords);
+                subtitleText, entry, iPlusOne, freqWords, revealedWords, suppressWrap);
             return Task.FromResult(new ColorizedSubtitle(ass, entry, underlines));
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             logger.LogError(ex, "Failed to colour subtitle from existing parse, falling back to plain rendering");
-            return Task.FromResult(new ColorizedSubtitle(renderer.RenderPlain(subtitleText), null, null));
+            return Task.FromResult(
+                new ColorizedSubtitle(renderer.RenderPlain(subtitleText, suppressWrap), null, null));
         }
     }
+
+    /// Plain white, for a text with no parse to colour by. Shares the caller's wrap mode so the
+    /// fallback still breaks where the resolver said it would.
+    public ColorizedSubtitle Plain(string subtitleText, bool suppressWrap)
+        => new(renderer.RenderPlain(subtitleText, suppressWrap), null, null);
 
     public async Task<ColorizedSubtitle> ColorizeWithRevealAsync(
         string subtitleText,
         HashSet<(int WordId, byte ReadingIndex)>? revealedWords,
+        bool suppressWrap,
         CancellationToken ct)
     {
         try
         {
             if (!JapaneseDetector.ContainsJapanese(subtitleText))
-                return new ColorizedSubtitle(renderer.RenderPlain(subtitleText), null, null);
+                return Plain(subtitleText, suppressWrap);
 
             var entry = cache.GetOrDefault(subtitleText);
             if (entry is null)
@@ -84,13 +93,13 @@ public sealed class SubtitleColorizer(
             var freqWords = det.Frequency?.Mark(entry.Tokens, entry.VocabStates, entry.FrequencyRanks);
 
             var (ass, underlines) = renderer.RenderSubtitle(
-                subtitleText, entry, iPlusOne, freqWords, revealedWords);
+                subtitleText, entry, iPlusOne, freqWords, revealedWords, suppressWrap);
             return new ColorizedSubtitle(ass, entry, underlines);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             logger.LogError(ex, "Failed to colorize subtitle, falling back to plain rendering");
-            return new ColorizedSubtitle(renderer.RenderPlain(subtitleText), null, null);
+            return Plain(subtitleText, suppressWrap);
         }
     }
 }

@@ -13,13 +13,16 @@ public sealed class OverlayRenderer
     private readonly OsdState _osd;
     private volatile RenderSnapshot _snap;
 
-    private sealed record RenderSnapshot(PluginSettings Settings, string Preamble);
+    /// <param name="Preamble">Drawn with \q2, for text whose breaks SubtitleWrapResolver owns.</param>
+    /// <param name="WrappingPreamble">Drawn without it, for text the resolver could not answer for:
+    /// suppressing libass there would run a long line off both edges of the screen.</param>
+    private sealed record RenderSnapshot(PluginSettings Settings, string Preamble, string WrappingPreamble);
 
     public OverlayRenderer(PluginSettings settings, StyleResolver styleResolver, OsdState osd)
     {
         _styleResolver = styleResolver;
         _osd = osd;
-        _snap = new RenderSnapshot(settings, BuildPreamble(settings, 1280f));
+        _snap = BuildSnapshot(settings, 1280f);
     }
 
     public const int OverlayResY = 720;
@@ -63,23 +66,19 @@ public sealed class OverlayRenderer
     }
 
     public void RebuildPreamble()
-    {
-        var s = _snap.Settings;
-        _snap = new RenderSnapshot(s, BuildPreamble(s, ComputeResX(_osd.Width, _osd.Height)));
-    }
+        => _snap = BuildSnapshot(_snap.Settings, ComputeResX(_osd.Width, _osd.Height));
 
     public void UpdateSettings(PluginSettings newSettings)
-    {
-        var preamble = BuildPreamble(newSettings, ComputeResX(_osd.Width, _osd.Height));
-        _snap = new RenderSnapshot(newSettings, preamble);
-    }
+        => _snap = BuildSnapshot(newSettings, ComputeResX(_osd.Width, _osd.Height));
 
-    private static string BuildPreamble(PluginSettings settings, float resX)
+    private static RenderSnapshot BuildSnapshot(PluginSettings settings, float resX)
     {
         int align = ClampAlign(settings.SubtitleAlignment);
+        var head = $@"\an{align}{BuildPositionTags(resX, settings, align)}";
+        var tail = BuildStyleTags(settings);
         // \q2 stops libass from wrapping on its own: SubtitleWrapResolver turns every wrap into
         // an explicit \N beforehand, so the drawn text and the measured hitboxes always agree.
-        return $@"{{\an{align}{BuildPositionTags(resX, settings, align)}\q2{BuildStyleTags(settings)}}}";
+        return new RenderSnapshot(settings, $"{{{head}\\q2{tail}}}", $"{{{head}{tail}}}");
     }
 
     /// Underlines carries the words whose resolved style asks for a coloured bar, since style
@@ -89,11 +88,12 @@ public sealed class OverlayRenderer
         ParseCacheEntry entry,
         HashSet<(int WordId, byte ReadingIndex)>? iPlusOneWords = null,
         HashSet<(int WordId, byte ReadingIndex)>? frequencyWords = null,
-        HashSet<(int WordId, byte ReadingIndex)>? revealedWords = null)
+        HashSet<(int WordId, byte ReadingIndex)>? revealedWords = null,
+        bool suppressWrap = true)
     {
         var snap = _snap;
         var sb = new StringBuilder();
-        sb.Append(snap.Preamble);
+        sb.Append(suppressWrap ? snap.Preamble : snap.WrappingPreamble);
 
         double border = snap.Settings.BorderSize;
         Dictionary<(int WordId, byte ReadingIndex), UnderlineBar>? underlines = null;
@@ -131,11 +131,11 @@ public sealed class OverlayRenderer
         return (sb.ToString(), underlines);
     }
 
-    public string RenderPlain(string text)
+    public string RenderPlain(string text, bool suppressWrap = true)
     {
         var snap = _snap;
         var sb = new StringBuilder();
-        sb.Append(snap.Preamble);
+        sb.Append(suppressWrap ? snap.Preamble : snap.WrappingPreamble);
         AssTagBuilder.AppendStyle(sb, ThemePresets.Unparsed, snap.Settings.BorderSize);
         AssTagBuilder.AppendEscapedText(sb, text, 0, text.Length);
         return sb.ToString();

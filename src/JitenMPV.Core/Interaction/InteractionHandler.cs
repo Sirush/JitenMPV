@@ -36,8 +36,15 @@ public sealed class InteractionHandler : IDisposable
     private readonly SemaphoreSlim _eventLock = new(1, 1);
     private long _lastMoveMs;
 
+    /// What is drawn: the resolver's breaks are in it, so it is the only text a re-render may use.
     private string? _currentText;
+
+    /// The same line without those breaks, paired with _currentEntry. Everything that cuts a word
+    /// or a sentence out of the subtitle reads this one - a break can land inside a word, and a
+    /// mined card would carry it into the surface form and the example sentence.
+    private string? _sourceText;
     private ParseCacheEntry? _currentEntry;
+    private bool _suppressWrap = true;
 
     private WordRect? _popupWord;
     private WordRect? _pendingWord;
@@ -117,16 +124,20 @@ public sealed class InteractionHandler : IDisposable
         static string Inv(float v) => v.ToString("F0", System.Globalization.CultureInfo.InvariantCulture);
     }
 
-    public async Task OnSubtitleRenderedAsync(string? text, ParseCacheEntry? entry,
-                                    List<WordRect> layout, CancellationToken ct)
+    public async Task OnSubtitleRenderedAsync(
+                                    string? displayText, string? sourceText, ParseCacheEntry? entry,
+                                    List<WordRect> layout, CancellationToken ct,
+                                    bool suppressWrap = true)
     {
         // Serialized against the mouse handlers via the same lock so shared state
         // (_currentEntry, autopause/blur internals, popup lifecycle) is never mutated concurrently.
         await _eventLock.WaitAsync(ct);
         try
         {
-            _currentText = text;
+            _currentText = displayText;
+            _sourceText = sourceText;
             _currentEntry = entry;
+            _suppressWrap = suppressWrap;
 
             _blur.Reset();
             await _autopause.ResetAsync();
@@ -146,13 +157,18 @@ public sealed class InteractionHandler : IDisposable
 
     /// Re-measurement of the line already on screen, after the OSD changed size. The popup, autopause
     /// state and blur reveals belong to that same line, so they outlive it; only the rectangles move.
+    /// The drawn text is retaken because a narrower screen wraps the same line at other points, and
+    /// a re-render against the previous ones would put the breaks back where they no longer belong.
     public async Task OnSubtitleLayoutChangedAsync(
-        ParseCacheEntry? entry, List<WordRect> layout, CancellationToken ct)
+        string? displayText, ParseCacheEntry? entry, List<WordRect> layout, CancellationToken ct,
+        bool suppressWrap = true)
     {
         await _eventLock.WaitAsync(ct);
         try
         {
+            _currentText = displayText;
             _currentEntry = entry;
+            _suppressWrap = suppressWrap;
             SetLayout(layout);
 
             // The re-render that produced this layout was colourised without the reveal, so a word
@@ -443,7 +459,7 @@ public sealed class InteractionHandler : IDisposable
     private async Task HandleDoubleClickAsync(double mx, double my, CancellationToken ct)
     {
         var entry = _currentEntry;
-        var text = _currentText;
+        var text = _sourceText;
         var action = _settings.DoubleClickAction;
 
         var hit = entry is not null && text is not null && action != DoubleClickAction.None
@@ -486,7 +502,7 @@ public sealed class InteractionHandler : IDisposable
         try
         {
             if (_popup.CurrentWord is not { } key) return;
-            await _mining.MineAsync(key.WordId, key.ReadingIndex, deckId, _currentText, _ipc, ct);
+            await _mining.MineAsync(key.WordId, key.ReadingIndex, deckId, _sourceText, _ipc, ct);
 
             if (_settings.PopupHideAfterAction)
                 await _popup.HideAsync(ct);
@@ -501,7 +517,7 @@ public sealed class InteractionHandler : IDisposable
 
     public async Task ExecutePopupActionAsync(PopupAction action, CancellationToken ct)
     {
-        if (_currentEntry is null || _currentText is null) return;
+        if (_currentEntry is null || _sourceText is null) return;
 
         // Keybinds are reconfigured asynchronously in the Lua process, so a grade can still arrive
         // for a short window after reviews are switched off.
@@ -526,7 +542,7 @@ public sealed class InteractionHandler : IDisposable
             case PopupAction.Suspend:
             case PopupAction.Forget:
                 await _wordAction.SetStateAsync(
-                    wordId, readingIndex, action, state, _currentText, _ipc, ct);
+                    wordId, readingIndex, action, state, _sourceText, _ipc, ct);
                 break;
             case PopupAction.ReviewAgain:
                 await _review.ReviewAsync(wordId, readingIndex, 1, _ipc, ct);
@@ -541,7 +557,7 @@ public sealed class InteractionHandler : IDisposable
                 await _review.ReviewAsync(wordId, readingIndex, 4, _ipc, ct);
                 break;
             case PopupAction.Mine:
-                await _mining.MineWithConfiguredDeckAsync(wordId, readingIndex, _currentText, _ipc, ct);
+                await _mining.MineWithConfiguredDeckAsync(wordId, readingIndex, _sourceText, _ipc, ct);
                 break;
             case PopupAction.RotateForward:
                 await RotateStateAsync(wordId, readingIndex, state, 1, ct);
@@ -555,7 +571,7 @@ public sealed class InteractionHandler : IDisposable
         if (action.IsReview() && _settings.MiningAutoOnReview
             && _mining.ResolveDeckWithoutPicker() is { } autoDeck)
         {
-            await _mining.MineAsync(wordId, readingIndex, autoDeck, _currentText, _ipc, ct,
+            await _mining.MineAsync(wordId, readingIndex, autoDeck, _sourceText, _ipc, ct,
                 reportSkip: false);
         }
 
@@ -579,11 +595,11 @@ public sealed class InteractionHandler : IDisposable
 
         if (current is { } clear)
             await _wordAction.SetStateAsync(
-                wordId, readingIndex, clear, state, _currentText!, _ipc, ct);
+                wordId, readingIndex, clear, state, _sourceText!, _ipc, ct);
 
         if (target is { } set)
             await _wordAction.SetStateAsync(
-                wordId, readingIndex, set, KnownState.New, _currentText!, _ipc, ct);
+                wordId, readingIndex, set, KnownState.New, _sourceText!, _ipc, ct);
     }
 
     private async Task ReRenderSubtitleAsync(CancellationToken ct)
@@ -593,7 +609,7 @@ public sealed class InteractionHandler : IDisposable
         try
         {
             var render = await _colorizer.ColorizeWithRevealAsync(
-                _currentText, _blur.GetRevealedSnapshot(), ct);
+                _currentText, _blur.GetRevealedSnapshot(), _suppressWrap, ct);
             await _ipc.ShowOverlayAsync(SubtitleOverlayId, render.Ass, ct);
 
             if (UnderlineBarsChanged is { } redrawBars)
