@@ -60,13 +60,43 @@ If you would rather not see that warning, or prefer a scriptable install, this o
 irm https://raw.githubusercontent.com/Sirush/JitenMPV/master/installers/windows.ps1 | iex
 ```
 
-### Linux and macOS
+### Linux
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/Sirush/JitenMPV/master/installers/unix.sh | sh
 ```
 
 Then start mpv and press `Ctrl+J`. Nothing needs administrator rights and nothing is installed system-wide.
+
+### macOS
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/Sirush/JitenMPV/master/installers/unix.sh | sh
+```
+
+**Then give mpv permission to run the plugin.** macOS blocks locally signed executables, so mpv cannot
+start JitenMPV until you allow it. Without this step the plugin will be killed the moment mpv launches it.
+Nothing else needs administrator rights and nothing is installed system-wide.
+
+1. Open **System Settings > Privacy & Security**, and select **Developer Tools**.
+
+   ![System Settings with Privacy & Security selected in the sidebar and Developer Tools highlighted in the list](docs/images/mac_install_step1.webp)
+
+2. Press the **+** button.
+
+   ![The Developer Tools pane, empty, with the + button highlighted](docs/images/mac_install_step2.webp)
+
+3. Pick **mpv** in **Applications** and press **Open**.
+
+   ![The file picker showing the Applications folder with mpv selected and the Open button highlighted](docs/images/mac_install_step3.webp)
+
+4. Make sure the toggle next to mpv is on, then restart mpv and press `Ctrl+J`.
+
+   ![The Developer Tools pane listing mpv with its toggle switched on](docs/images/mac_install_step4.webp)
+
+The permission needs to be added for mpv itself, as it is the process that launches the plugin, so allowing Terminal instead wouldn't change anything.
+
+### Install script options
 
 The install scripts download the latest release, check it against its published SHA-256, and install it. Two environment variables adjust what they do:
 
@@ -89,9 +119,7 @@ On macOS, download with `curl` rather than a browser, and re-sign the extracted 
 codesign --force --sign - JitenMPV
 ```
 
-Recent macOS kills executables whose ad-hoc signature was made on another machine and only a signature made on your own Mac satisfies it. The install script above does this automatically. Browser downloads are additionally quarantined (macOS 15 removed the right-click-Open bypass); `xattr -d com.apple.quarantine JitenMPV` clears that, but clearing quarantine alone is not enough.
-
-If mpv still reports the plugin being killed after all of that (seen on macOS 26.6), grant mpv the right to run locally signed code: System Settings > Privacy & Security > Developer Tools, add mpv with the + button and enable it, then restart mpv. The permission must go to mpv itself — it is the process that launches the plugin, so exempting Terminal changes nothing.
+Recent macOS kills executables whose ad-hoc signature was made on another machine and only a signature made on your own Mac satisfies it. The install script above does this automatically. Browser downloads are additionally quarantined (macOS 15 removed the right-click-Open bypass); `xattr -d com.apple.quarantine JitenMPV` clears that, but clearing quarantine alone is not enough. You still need the Developer Tools permission described under [macOS](#macos).
 
 ### Where things go
 
