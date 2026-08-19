@@ -30,6 +30,37 @@ public sealed class SubtitleColorizer(
     public async Task<ColorizedSubtitle> ColorizeAsync(string subtitleText, CancellationToken ct)
         => await ColorizeWithRevealAsync(subtitleText, null, ct);
 
+    /// Renders from a parse that already happened, without hitting the dictionary again. Used to
+    /// colour a text whose line breaks were inserted after the parse (wrapped subtitles): the same
+    /// tokens describe both texts, and re-parsing would split the words the breaks cut across.
+    public Task<ColorizedSubtitle> ColorizeWithParsedEntryAsync(
+        string subtitleText, ParseCacheEntry entry,
+        HashSet<(int WordId, byte ReadingIndex)>? revealedWords,
+        CancellationToken ct)
+    {
+        try
+        {
+            // The parse cache resolves by text, so a text that was re-based onto an existing parse
+            // (wrapped subtitles) must be registered under its own key as well. Otherwise later
+            // re-renders, mining and word actions resolve the current text to a fresh parse with
+            // entirely new word ids, or to nothing, and clicks land on hitboxes with no popup.
+            cache.Set(subtitleText, entry);
+
+            var det = _detectors;
+            var iPlusOne = det.IPlusOne?.Detect(entry.Tokens, entry.VocabStates, entry.FrequencyRanks);
+            var freqWords = det.Frequency?.Mark(entry.Tokens, entry.VocabStates, entry.FrequencyRanks);
+
+            var (ass, underlines) = renderer.RenderSubtitle(
+                subtitleText, entry, iPlusOne, freqWords, revealedWords);
+            return Task.FromResult(new ColorizedSubtitle(ass, entry, underlines));
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogError(ex, "Failed to colour subtitle from existing parse, falling back to plain rendering");
+            return Task.FromResult(new ColorizedSubtitle(renderer.RenderPlain(subtitleText), null, null));
+        }
+    }
+
     public async Task<ColorizedSubtitle> ColorizeWithRevealAsync(
         string subtitleText,
         HashSet<(int WordId, byte ReadingIndex)>? revealedWords,

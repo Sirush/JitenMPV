@@ -20,6 +20,12 @@ public sealed class SubtitleMeasurer(PluginSettings settings, OsdState osd)
     /// reported bounds.
     private const float MeasureOrigin = 64f;
 
+    /// Shift applied to prefix measurements so that long lines whose ink extends past the play-res
+    /// width are not clipped at the right edge. Without this, the sentinel-based advance at the
+    /// end of a full-width line gets clamped at the play-res, producing zero-width rects for the
+    /// last word.
+    private const float MeasureShift = 300f;
+
     private volatile PluginSettings _settings = settings;
     private readonly BoundedCache<string, List<WordRect>> _cache = new(2000);
     private int _lastOsdVersion = -1;
@@ -85,7 +91,9 @@ public sealed class SubtitleMeasurer(PluginSettings settings, OsdState osd)
         // or blur style out of the reported ink bounds.
         string MeasureTags() => $@"{{\an7\pos({MeasureOrigin:F0},{MeasureOrigin:F0})\q2{styleTags}\shad0\blur0}}";
 
-        var fullAss = $@"{{\an{align}{posTags}{styleTags}\shad0\blur0}}{AssTagBuilder.EscapeText(text)}";
+        // \q2 on the display probe too: the overlay it is measured against renders with \q2
+        // (SubtitleWrapResolver owns the wrapping), so fullBounds must match what displays.
+        var fullAss = $@"{{\an{align}{posTags}\q2{styleTags}\shad0\blur0}}{AssTagBuilder.EscapeText(text)}";
         var fullBounds = await ipc.MeasureOverlayAsync(AllocId(), fullAss, ct);
         if (fullBounds is null)
         {
@@ -104,7 +112,7 @@ public sealed class SubtitleMeasurer(PluginSettings settings, OsdState osd)
             var escapedLine = AssTagBuilder.EscapeText(lineText);
             inkTasks[li] = (
                 ipc.MeasureOverlayAsync(AllocId(), $"{MeasureTags()}{escapedLine}", ct),
-                ipc.MeasureOverlayAsync(AllocId(), $@"{{\an{align}{posTags}{styleTags}\shad0\blur0}}{escapedLine}", ct));
+                ipc.MeasureOverlayAsync(AllocId(), $@"{{\an{align}{posTags}\q2{styleTags}\shad0\blur0}}{escapedLine}", ct));
         }
 
         await Task.WhenAll(inkTasks.Values.SelectMany(t => new[] { t.Ink, t.Centered }));
@@ -160,13 +168,17 @@ public sealed class SubtitleMeasurer(PluginSettings settings, OsdState osd)
             var (lineText, lineStartIdx) = lines[li];
             if (lineText.Length == 0 || lineInk[li] is null || lineCentered[li] is null) continue;
 
-            var positions = new SortedSet<int>();
+            int lineEnd = lineStartIdx + lineText.Length;
+            var positions = new SortedSet<int> { 0, lineText.Length };
             foreach (var token in entry.Tokens)
             {
-                if (token.Start < lineStartIdx ||
-                    token.Start + token.Length > lineStartIdx + lineText.Length) continue;
-                positions.Add(token.Start - lineStartIdx);
-                positions.Add(token.Start - lineStartIdx + token.Length);
+                int tokenEnd = token.Start + token.Length;
+                if (token.Start >= lineEnd || tokenEnd <= lineStartIdx) continue;
+
+                // Tokens straddling the break to the next visual line contribute their segment
+                // ends here, so the segment rects below get a measured advance at each end.
+                positions.Add(Math.Clamp(token.Start, lineStartIdx, lineEnd) - lineStartIdx);
+                positions.Add(Math.Clamp(tokenEnd, lineStartIdx, lineEnd) - lineStartIdx);
             }
 
             var prefixes = positions.Where(p => p > 0 && p <= lineText.Length).ToList();
@@ -187,31 +199,57 @@ public sealed class SubtitleMeasurer(PluginSettings settings, OsdState osd)
             if (linePrefixes[li] is not { } prefixPositions) continue;
 
             var (lineText, lineStartIdx) = lines[li];
+            int lineEnd = lineStartIdx + lineText.Length;
             var lineTokens = entry.Tokens
                 .Select((t, i) => (Index: i, Token: t))
-                .Where(x => x.Token.Start >= lineStartIdx
-                         && x.Token.Start + x.Token.Length <= lineStartIdx + lineText.Length)
+                .Where(x => x.Token.Start < lineEnd && x.Token.Start + x.Token.Length > lineStartIdx)
                 .ToList();
 
             if (lineTokens.Count == 0) continue;
             if (lineInk[li] is not { X1: > 0 } || lineCentered[li] is null) continue;
 
             var prefixTasks = new Dictionary<int, Task<OverlayBounds?>>();
+            var prefixTexts = new Dictionary<int, string>();
             foreach (var pos in prefixPositions)
             {
                 var prefixText = AssTagBuilder.EscapeText(lineText[..pos]);
                 if (sentinelInkX1 is not null) prefixText += SentinelGlyph;
-                prefixTasks[pos] = ipc.MeasureOverlayAsync(AllocId(), $"{MeasureTags()}{prefixText}", ct);
+                prefixTexts[pos] = prefixText;
+                // Shift the measurement left so that prefixes extending past the play-res width
+                // are not clipped at the right edge. The shift cancels out in BuildAdvances.
+                string shiftedTags = $@"{{\an7\pos({MeasureOrigin - MeasureShift:F0},{MeasureOrigin})\q2{styleTags}\shad0\blur0}}";
+                prefixTasks[pos] = ipc.MeasureOverlayAsync(AllocId(), $"{shiftedTags}{prefixText}", ct);
             }
 
             await Task.WhenAll(prefixTasks.Values);
 
-            var prefixBounds = new Dictionary<int, OverlayBounds?>();
+            // A short prefix's ink lands entirely off-canvas at the shifted pen and mpv reports
+            // null for it. Such a prefix can never reach the play-res right edge at the normal pen,
+            // so re-measure it there; its X1 is unshifted and needs no compensation.
+            var adjustedX1s = new Dictionary<int, float?>();
+            var retryPositions = new List<int>();
             foreach (var pos in prefixPositions)
-                prefixBounds[pos] = await prefixTasks[pos];
+            {
+                var bounds = await prefixTasks[pos];
+                if (bounds is null)
+                    retryPositions.Add(pos);
+                else
+                    adjustedX1s[pos] = (float)bounds.X1 + MeasureShift;
+            }
+
+            if (retryPositions.Count > 0)
+            {
+                var retryTasks = retryPositions
+                    .Select(pos => (Pos: pos, Task: ipc.MeasureOverlayAsync(
+                        AllocId(), $"{MeasureTags()}{prefixTexts[pos]}", ct)))
+                    .ToList();
+                await Task.WhenAll(retryTasks.Select(t => t.Task));
+                foreach (var (pos, task) in retryTasks)
+                    adjustedX1s[pos] = (float?)(await task)?.X1;
+            }
 
             float border = (float)s.BorderSize;
-            var advances = BuildAdvances(prefixBounds, sentinelInkX1, border);
+            var advances = BuildAdvances(adjustedX1s, sentinelInkX1, border);
 
             // The centred line's ink left is offset from its pen origin by the first glyph's side
             // bearing (large for opening brackets) plus any leading whitespace; the an7 measurement
@@ -222,10 +260,15 @@ public sealed class SubtitleMeasurer(PluginSettings settings, OsdState osd)
             float lineY = (float)fullBounds.Y0 + (li - firstIdx) * lineSpacing;
             float lineHeight = (float)lineInk[li]!.Height;
 
+            // A token wrapped across the line break contributes one rect per line it occupies, so a
+            // half at either end of the break stays clickable and points at the same word.
             foreach (var (idx, token) in lineTokens)
             {
-                int localStart = token.Start - lineStartIdx;
-                int localEnd = localStart + token.Length;
+                int segStart = Math.Max(token.Start, lineStartIdx);
+                int segEnd = Math.Min(token.Start + token.Length, lineEnd);
+                int localStart = segStart - lineStartIdx;
+                int localEnd = segEnd - lineStartIdx;
+                if (localEnd <= localStart) continue;
 
                 float x0 = penOrigin + advances.GetValueOrDefault(localStart, border) - border;
                 float x1 = penOrigin + advances.GetValueOrDefault(localEnd, border) - border;
@@ -248,19 +291,21 @@ public sealed class SubtitleMeasurer(PluginSettings settings, OsdState osd)
     /// pen origin. Prefixes are measured with the sentinel appended, so subtracting the sentinel's
     /// own ink right edge leaves exactly the pen position where the sentinel was placed. A null
     /// sentinel falls back to the bare ink right edge, which drifts by the last glyph's overhang.
+    /// The X1 values are already compensated for the measurement shift (or came from an unshifted
+    /// retry), so they are in the same coordinate space as the line's pen origin.
     internal static Dictionary<int, float> BuildAdvances(
-        IReadOnlyDictionary<int, OverlayBounds?> prefixBounds,
+        IReadOnlyDictionary<int, float?> prefixX1s,
         float? sentinelInkX1, float border)
     {
         var advances = new Dictionary<int, float> { [0] = border };
-        foreach (var (pos, bounds) in prefixBounds)
+        foreach (var (pos, x1) in prefixX1s)
         {
-            if (bounds is null)
+            if (x1 is null)
                 advances[pos] = border;
             else if (sentinelInkX1 is { } sx)
-                advances[pos] = (float)bounds.X1 - sx + border;
+                advances[pos] = (float)x1 - sx + border;
             else
-                advances[pos] = (float)bounds.X1 - MeasureOrigin;
+                advances[pos] = (float)x1 - MeasureOrigin;
         }
         return advances;
     }
