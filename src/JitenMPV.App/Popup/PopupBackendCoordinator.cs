@@ -24,6 +24,7 @@ internal sealed class PopupBackendCoordinator : IAsyncDisposable
 
     private IPopupSurfaceBackend _surface;
     private IMpvWindowGeometryProvider? _geometry;
+    private PixelPoint? _pointerAnchor;
 
     public PopupBackendCoordinator()
     {
@@ -58,6 +59,17 @@ internal sealed class PopupBackendCoordinator : IAsyncDisposable
         UsesNativeWayland
         && _plasmaSurface is not null
         && ReferenceEquals(_surface, _plasmaSurface);
+
+    /// <summary>
+    /// Samples the anchor the popup is placed against, once per showing. A reposition triggered by
+    /// a content resize or a window-context update must not move the popup to wherever the cursor
+    /// has travelled since. Platforms that derive the anchor from mpv's own client geometry keep
+    /// no sample.
+    /// </summary>
+    public void CapturePointerAnchor() =>
+        _pointerAnchor = OperatingSystem.IsLinux()
+            ? null
+            : CursorPositionHelper.GetCursorPosition();
 
     public async ValueTask PrepareAsync(
         Window window,
@@ -121,9 +133,7 @@ internal sealed class PopupBackendCoordinator : IAsyncDisposable
             ? null
             : await _geometry.GetGeometryAsync(context, ct);
 
-        var globalCursor = !OperatingSystem.IsLinux()
-            ? CursorPositionHelper.GetCursorPosition()
-            : null;
+        var globalCursor = _pointerAnchor;
         var screen = SelectScreen(
             window, context, discovered, globalCursor);
         if (screen is null)

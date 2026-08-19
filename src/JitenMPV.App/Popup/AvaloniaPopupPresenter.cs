@@ -90,6 +90,7 @@ public sealed class AvaloniaPopupPresenter : IPopupPresenter
             _fixedAnchor = data.FixedAnchor;
             _offsetPx = data.OffsetPx;
             _lastPointer = pointer;
+            _backend.CapturePointerAnchor();
 
             _viewModel!.Update(data);
             ApplyFontScale(data.FontScale);
