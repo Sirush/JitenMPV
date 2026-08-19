@@ -22,7 +22,8 @@ public sealed class PluginHost(
     IPopupPresenter popupPresenter,
     IMiningReviewPresenter? reviewPresenter = null,
     IMediaOverwritePresenter? overwritePresenter = null,
-    string? mpvAppId = null)
+    string? mpvAppId = null,
+    ISubtitleOverlaySurface? overlaySurface = null)
 {
     internal const int SubtitleOverlayId = 1;
     internal const int UnderlineOverlayId = 2;
@@ -67,6 +68,12 @@ public sealed class PluginHost(
 
     private volatile bool _shuttingDown;
     private volatile string? _currentSubtitleText;
+
+    /// Set for the rest of the session once the overlay surface has failed to draw a frame, so a
+    /// platform it cannot handle costs one failed attempt rather than one per line. Cleared when
+    /// the setting changes or the surface reports the mpv window back.
+    private volatile bool _surfaceFallback;
+    private volatile bool _surfaceNoticeShown;
 
     /// The rects the bar overlay was last drawn against, so a re-render driven by interaction can
     /// redraw the bars without re-measuring the line that is already on screen.
@@ -145,6 +152,15 @@ public sealed class PluginHost(
         _rotationService?.UpdateSettings(newSettings);
         _mediaCapture?.UpdateSettings(newSettings);
 
+        bool rendererSwitched =
+            previous?.ExperimentalAvaloniaRenderer != newSettings.ExperimentalAvaloniaRenderer;
+        if (rendererSwitched)
+        {
+            _surfaceFallback = false;
+            _surfaceNoticeShown = false;
+        }
+        overlaySurface?.UpdateSettings(newSettings);
+
         if (!string.Equals(previous?.FfmpegPath, newSettings.FfmpegPath, StringComparison.Ordinal))
             FfmpegLocator.Invalidate();
 
@@ -163,6 +179,22 @@ public sealed class PluginHost(
             if (previous?.DebugShowHitboxes == true && !newSettings.DebugShowHitboxes)
                 _ = RunSafe(() => ipc.RemoveOverlayAsync(HitboxDebugOverlayId, CancellationToken.None));
 
+            // The renderer that is being switched away from has to let go of its layers first, or
+            // the line it drew last stays on screen underneath the one the new renderer draws.
+            if (rendererSwitched && newSettings.ExperimentalAvaloniaRenderer)
+            {
+                _ = RunSafe(async () =>
+                {
+                    await ipc.RemoveOverlayAsync(SubtitleOverlayId, CancellationToken.None);
+                    await ipc.RemoveOverlayAsync(UnderlineOverlayId, CancellationToken.None);
+                    await ipc.RemoveOverlayAsync(HitboxDebugOverlayId, CancellationToken.None);
+                });
+            }
+            else if (rendererSwitched && overlaySurface is { } switchedSurface)
+            {
+                _ = RunSafe(() => switchedSurface.ClearAsync(CancellationToken.None));
+            }
+
             _ = RunSafe(() => ipc.SendScriptMessageAsync(LuaScriptName, "jiten-set-mouse-zone",
                 newSettings.MouseZonePercent.ToString(), CancellationToken.None));
             _ = RunSafe(() => ipc.SendScriptMessageAsync(LuaScriptName, "jiten-set-buttons",
@@ -177,6 +209,24 @@ public sealed class PluginHost(
                 var measurer = _measurer;
                 var interaction = _interactionHandler;
                 var joiner = _lineJoiner;
+
+                if (AvaloniaRendererActive && overlaySurface is { } surface && interaction is not null)
+                {
+                    // geometryOnly keeps the popup, blur and autopause alive across the re-render,
+                    // matching the ASS path below, which only swaps the layout.
+                    _ = TaskHelper.RunSafe(async () =>
+                    {
+                        if (await RenderWithSurfaceAsync(
+                                surface, raw, colorizer, interaction, geometryOnly: true,
+                                () => _currentSubtitleRaw != raw, CancellationToken.None))
+                            return;
+                        if (measurer is not null && joiner is not null)
+                            QueueSubtitleRender(raw, ipc, colorizer,
+                                measurer, interaction, joiner, CancellationToken.None);
+                    }, logger, "Re-render subtitle after settings change");
+                    return;
+                }
+
                 _ = TaskHelper.RunSafe(async () =>
                 {
                     var source = joiner is null
@@ -285,8 +335,8 @@ public sealed class PluginHost(
         if (settings is null) return;
 
         var ass = UnderlineBarRenderer.Render(
-            BuildUnderlineBars(entry, themeUnderlines, layout, PitchStyleBuilder.BuildUnderlineColors(settings),
-                settings.PitchUnderlineThickness),
+            UnderlineBarMerger.ForLayout(
+                layout, BuildUnderlineBars(entry, themeUnderlines, settings)),
             _measurer?.LinePitch);
 
         if (ass.Length == 0)
@@ -295,32 +345,87 @@ public sealed class PluginHost(
             await ipc.ShowOverlayAsync(UnderlineOverlayId, ass, ct);
     }
 
-    /// The theme bar comes first so it sits nearest the text, leaving pitch stacked beneath it.
-    private static IEnumerable<(WordRect Rect, IReadOnlyList<UnderlineBar> Bars)> BuildUnderlineBars(
-        ParseCacheEntry? entry,
-        IReadOnlyDictionary<(int WordId, byte ReadingIndex), UnderlineBar>? themeUnderlines,
-        IReadOnlyList<WordRect> layout,
-        IReadOnlyDictionary<PitchClass, string> pitchColors,
-        double pitchThickness)
+    private static IReadOnlyDictionary<(int WordId, byte ReadingIndex), IReadOnlyList<UnderlineBar>>?
+        BuildUnderlineBars(
+            ParseCacheEntry? entry,
+            IReadOnlyDictionary<(int WordId, byte ReadingIndex), UnderlineBar>? themeUnderlines,
+            PluginSettings settings)
+        => UnderlineBarMerger.Build(
+            entry, themeUnderlines,
+            PitchStyleBuilder.BuildUnderlineColors(settings), settings.PitchUnderlineThickness);
+
+    private bool AvaloniaRendererActive
+        => _settings?.ExperimentalAvaloniaRenderer == true
+           && !_surfaceFallback
+           && overlaySurface is { IsAvailable: true };
+
+    private SubtitleFrame BuildFrame(string text, ColorizedSubtitle render, PluginSettings settings)
+        => new(text, render.Runs,
+            BuildUnderlineBars(render.Entry, render.Underlines, settings),
+            settings.DebugShowHitboxes);
+
+    /// Draws through the overlay surface and hands the result to the interaction layer. False means
+    /// the surface declined the frame and the caller has to render it through mpv instead.
+    private async Task<bool> RenderWithSurfaceAsync(
+        ISubtitleOverlaySurface surface, string text,
+        SubtitleColorizer colorizer, InteractionHandler interaction,
+        bool geometryOnly, Func<bool> superseded, CancellationToken ct)
     {
-        foreach (var rect in layout)
+        var settings = _settings;
+        if (settings is null) return false;
+
+        var render = await colorizer.ColorizeWithRevealAsync(text, null, suppressWrap: true, ct);
+        if (superseded()) return true;
+
+        _currentSubtitleText = text;
+        var layout = await surface.ShowAsync(BuildFrame(text, render, settings), ct);
+        if (layout is null)
         {
-            var key = (rect.WordId, rect.ReadingIndex);
-            List<UnderlineBar>? bars = null;
-
-            if (themeUnderlines?.TryGetValue(key, out var themeBar) == true)
-                (bars ??= []).Add(themeBar);
-
-            if (pitchColors.Count > 0 && entry is not null
-                && entry.PitchClasses.TryGetValue(key, out var pitchClass)
-                && pitchColors.TryGetValue(pitchClass, out var pitchColor))
-            {
-                (bars ??= []).Add(new UnderlineBar(pitchColor, pitchThickness));
-            }
-
-            if (bars is not null)
-                yield return (rect, bars);
+            await MarkSurfaceUnavailableAsync(ct);
+            return false;
         }
+
+        if (superseded()) return true;
+
+        var rects = layout as List<WordRect> ?? [.. layout];
+        _lastLayout = rects;
+
+        if (geometryOnly)
+            await interaction.OnSubtitleLayoutChangedAsync(text, render.Entry, rects, ct);
+        else
+            await interaction.OnSubtitleRenderedAsync(text, text, render.Entry, rects, ct);
+
+        return true;
+    }
+
+    /// Re-colours the line already on screen without re-measuring it: with the native renderer a
+    /// blur reveal or a state change costs no IPC at all.
+    private async Task<bool> ReRenderViaSurfaceAsync(
+        string text, HashSet<(int WordId, byte ReadingIndex)>? revealedWords, CancellationToken ct)
+    {
+        var settings = _settings;
+        if (!AvaloniaRendererActive || overlaySurface is not { } surface
+            || _colorizer is not { } colorizer || settings is null)
+            return false;
+
+        var render = await colorizer.ColorizeWithRevealAsync(text, revealedWords, true, ct);
+        if (await surface.ShowAsync(BuildFrame(text, render, settings), ct) is not null)
+            return true;
+
+        await MarkSurfaceUnavailableAsync(ct);
+        return false;
+    }
+
+    private async Task MarkSurfaceUnavailableAsync(CancellationToken ct)
+    {
+        _surfaceFallback = true;
+        if (overlaySurface is { } surface)
+            await surface.ClearAsync(ct);
+
+        if (_surfaceNoticeShown || _ipcClient is not { } ipc) return;
+        _surfaceNoticeShown = true;
+        await ipc.ShowTextAsync(
+            "jiten-mpv: native renderer unavailable here, using mpv rendering.", NoticeDurationMs, ct);
     }
 
     /// No-ops while the option is off so the common path costs no extra round trip; ReloadSettings
@@ -445,6 +550,28 @@ public sealed class PluginHost(
             _interactionHandler = interaction;
             interaction.UnderlineBarsChanged = (entry, underlines, ct) =>
                 RenderUnderlineBarsAsync(entry, underlines, _lastLayout, ipcClient, ct);
+            interaction.OverlayReRender = ReRenderViaSurfaceAsync;
+
+            if (overlaySurface is { } surface)
+            {
+                surface.UpdateSettings(settings);
+                surface.AvailabilityChanged += () =>
+                {
+                    _surfaceFallback = false;
+                    if (!AvaloniaRendererActive) return;
+
+                    // The fallback that bridged the gap drew through mpv; those layers have to go
+                    // or they stay on screen underneath the surface's own drawing.
+                    _ = RunSafe(async () =>
+                    {
+                        await ipcClient.RemoveOverlayAsync(SubtitleOverlayId, ct);
+                        await ipcClient.RemoveOverlayAsync(UnderlineOverlayId, ct);
+                        await ipcClient.RemoveOverlayAsync(HitboxDebugOverlayId, ct);
+                    });
+                    QueueSubtitleRender(_currentSubtitleRaw, ipcClient, colorizer,
+                        measurer, interaction, lineJoiner, ct, geometryOnly: true);
+                };
+            }
 
             var keybindManager = new KeybindManager(ipcClient, logger);
             _keybindManager = keybindManager;
@@ -508,8 +635,7 @@ public sealed class PluginHost(
                         ? id
                         : (long?)null;
                     _mpvWindowId = windowId;
-                    popupPresenter.UpdateWindowContext(
-                        CurrentPopupWindowContext());
+                    PublishWindowContext();
                     return;
                 }
 
@@ -521,16 +647,14 @@ public sealed class PluginHost(
                             .Select(item => item.GetString())
                             .OfType<string>()]
                         : [];
-                    popupPresenter.UpdateWindowContext(
-                        CurrentPopupWindowContext());
+                    PublishWindowContext();
                     return;
                 }
 
                 if (name == "fullscreen")
                 {
                     _mpvIsFullscreen = data.ValueKind == JsonValueKind.True;
-                    popupPresenter.UpdateWindowContext(
-                        CurrentPopupWindowContext());
+                    PublishWindowContext();
                     return;
                 }
 
@@ -539,8 +663,7 @@ public sealed class PluginHost(
                     _mpvWindowBackend = data.ValueKind == JsonValueKind.String
                         ? MpvWindowBackendDetector.FromGpuContext(data.GetString())
                         : MpvWindowBackend.Unknown;
-                    popupPresenter.UpdateWindowContext(
-                        CurrentPopupWindowContext());
+                    PublishWindowContext();
                     return;
                 }
 
@@ -568,6 +691,7 @@ public sealed class PluginHost(
                 if (!changed) return;
 
                 renderer.RebuildPreamble();
+                overlaySurface?.UpdateOsd(osd.Width, osd.Height);
                 QueueSubtitleRender(_currentSubtitleRaw, ipcClient, colorizer,
                     measurer, interaction, lineJoiner, ct, OsdGeometrySettleDelay,
                     geometryOnly: true);
@@ -629,9 +753,9 @@ public sealed class PluginHost(
 
             var widthTask = ipcClient.GetPropertyAsync<int>("osd-width", ct);
             var heightTask = ipcClient.GetPropertyAsync<int>("osd-height", ct);
-            var processIdTask = OperatingSystem.IsLinux()
-                ? ipcClient.GetPropertyAsync<int?>("pid", ct)
-                : Task.FromResult<int?>(null);
+            // The Windows and macOS window trackers find mpv's window by pid, so it is read
+            // everywhere; only the title observation below stays Linux-only.
+            var processIdTask = ipcClient.GetPropertyAsync<int?>("pid", ct);
             var backendTask = ipcClient.GetPropertyAsync<string?>(
                 "current-gpu-context", ct);
             var appIdTask = OperatingSystem.IsLinux()
@@ -645,8 +769,9 @@ public sealed class PluginHost(
             _mpvWaylandAppId = await appIdTask;
             if (OperatingSystem.IsLinux())
                 await RefreshMpvWindowTitleAsync(ipcClient, ct);
-            popupPresenter.UpdateWindowContext(CurrentPopupWindowContext());
+            PublishWindowContext();
             renderer.RebuildPreamble();
+            overlaySurface?.UpdateOsd(osd.Width, osd.Height);
 
             var clientName = await ipcClient.GetClientNameAsync(ct);
             logger.LogInformation("IPC client name: {Name}", clientName);
@@ -709,6 +834,8 @@ public sealed class PluginHost(
                 await ipcClient.RemoveOverlayAsync(StatusOverlay.StatusLayerId, cct);
                 await ipcClient.SendScriptMessageAsync(
                     LuaScriptName, "jiten-set-client", "", cct);
+                if (overlaySurface is { } surface)
+                    await surface.ShutdownAsync().WaitAsync(cct);
             }
             catch { }
 
@@ -717,6 +844,13 @@ public sealed class PluginHost(
             TaskHelper.CancelAndDispose(ref _currentSubtitleCts);
             _subtitleVisibilityLock.Dispose();
         }
+    }
+
+    private void PublishWindowContext()
+    {
+        var context = CurrentPopupWindowContext();
+        popupPresenter.UpdateWindowContext(context);
+        overlaySurface?.UpdateWindowContext(context);
     }
 
     private PopupWindowContext CurrentPopupWindowContext() =>
@@ -737,7 +871,7 @@ public sealed class PluginHost(
         _mpvWindowTitle = string.IsNullOrWhiteSpace(template)
             ? null
             : await ipc.ExpandTextAsync(template, ct);
-        popupPresenter.UpdateWindowContext(CurrentPopupWindowContext());
+        PublishWindowContext();
     }
 
     /// Drops the cues of the previous track before reading the new one: the timeline feeds the sentence
@@ -850,6 +984,8 @@ public sealed class PluginHost(
                 TaskHelper.CancelAndDispose(ref _currentSubtitleCts);
                 if (_interactionHandler is { } interaction)
                     await interaction.OnSubtitleRenderedAsync(null, null, null, [], ct);
+                if (overlaySurface is { } surface)
+                    await surface.ClearAsync(ct);
                 await ipc.RemoveOverlayAsync(SubtitleOverlayId, ct);
                 await ipc.RemoveOverlayAsync(UnderlineOverlayId, ct);
                 await RenderDebugHitboxesAsync([], ipc, ct);
@@ -975,14 +1111,33 @@ public sealed class PluginHost(
         {
             if (Superseded() || _currentSubtitleRaw != text) return;
 
+            bool useSurface = AvaloniaRendererActive && overlaySurface is not null;
+
             if (string.IsNullOrWhiteSpace(text))
             {
                 await interaction.OnSubtitleRenderedAsync(null, null, null, [], ct);
                 if (Superseded()) return;
+                if (useSurface)
+                {
+                    _lastLayout = [];
+                    await overlaySurface!.ClearAsync(ct);
+                    return;
+                }
+
                 await ipcClient.RemoveOverlayAsync(SubtitleOverlayId, ct);
                 await ipcClient.RemoveOverlayAsync(UnderlineOverlayId, ct);
                 await RenderDebugHitboxesAsync([], ipcClient, ct);
                 return;
+            }
+
+            if (useSurface)
+            {
+                if (await RenderWithSurfaceAsync(
+                        overlaySurface!, text, colorizer, interaction, geometryOnly,
+                        () => Superseded() || _currentSubtitleRaw != text, ct))
+                    return;
+
+                if (Superseded() || _currentSubtitleRaw != text) return;
             }
 
             var source = await joiner.ResolveAsync(text, ipcClient, ct);

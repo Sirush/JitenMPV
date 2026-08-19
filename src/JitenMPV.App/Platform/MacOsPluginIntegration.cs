@@ -81,6 +81,34 @@ internal static class MacOsPluginIntegration
         SendVoid(handle.Handle, sel_registerName("orderFrontRegardless"));
     }
 
+    /// Takes the subtitle overlay out of the event path entirely, so mpv keeps every click the
+    /// window is drawn over.
+    public static bool SetIgnoresMouseEvents(Window window)
+    {
+        if (!OperatingSystem.IsMacOS())
+            return false;
+
+        var handle = window.TryGetPlatformHandle();
+        if (handle is null
+            || !string.Equals(
+                handle.HandleDescriptor, "NSWindow",
+                StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        try
+        {
+            SendVoidBool(
+                handle.Handle,
+                sel_registerName("setIgnoresMouseEvents:"),
+                true);
+            return true;
+        }
+        catch (Exception ex) when (ex is DllNotFoundException or EntryPointNotFoundException)
+        {
+            return false;
+        }
+    }
+
     private static IntPtr SharedApplication() =>
         SendIntPtr(
             objc_getClass("NSApplication"),

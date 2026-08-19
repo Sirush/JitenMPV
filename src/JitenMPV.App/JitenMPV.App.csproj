@@ -49,6 +49,9 @@
         <PackageReference Include="Avalonia.Controls.ColorPicker" Version="12.1.1" />
         <PackageReference Include="Avalonia.Desktop" Version="12.1.1" />
         <PackageReference Include="Avalonia.Fonts.Inter" Version="12.1.1" />
+        <!-- The subtitle overlay draws through the Skia lease Avalonia's renderer already owns. -->
+        <PackageReference Include="Avalonia.Skia" Version="12.1.1" />
+        <PackageReference Include="SkiaSharp" Version="3.119.4" />
         <PackageReference Include="Avalonia.Themes.Fluent" Version="12.1.1" />
         <PackageReference Include="Avalonia.Wayland" Version="12.1.1" />
         <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />

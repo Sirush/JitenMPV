@@ -85,6 +85,11 @@ public sealed class InteractionHandler : IDisposable
     public Func<ParseCacheEntry?, IReadOnlyDictionary<(int WordId, byte ReadingIndex), UnderlineBar>?,
         CancellationToken, Task>? UnderlineBarsChanged { get; set; }
 
+    /// Offers the re-render to whatever renderer currently owns the subtitle. Returning false
+    /// means it declined and the ASS overlay below is written instead.
+    public Func<string, HashSet<(int WordId, byte ReadingIndex)>?, CancellationToken, Task<bool>>?
+        OverlayReRender { get; set; }
+
     /// A click-triggered popup is dismissed by a click, not by the pointer wandering off it.
     private bool StickyPopup => _settings.PopupTrigger == PopupTriggerMode.Click;
 
@@ -608,6 +613,10 @@ public sealed class InteractionHandler : IDisposable
 
         try
         {
+            if (OverlayReRender is { } overlayReRender
+                && await overlayReRender(_currentText, _blur.GetRevealedSnapshot(), ct))
+                return;
+
             var render = await _colorizer.ColorizeWithRevealAsync(
                 _currentText, _blur.GetRevealedSnapshot(), _suppressWrap, ct);
             await _ipc.ShowOverlayAsync(SubtitleOverlayId, render.Ass, ct);

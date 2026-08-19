@@ -89,11 +89,57 @@ internal static class X11MpvWindowBridge
         }
     }
 
+    /// Empties the window's input shape so the X server routes every pointer event to whatever is
+    /// underneath, which is mpv. False whenever libXfixes is missing, and the overlay must then not
+    /// be shown at all: an unshaped one would swallow the clicks mpv's own bindings need.
+    public static bool SetEmptyInputRegion(Window overlay)
+    {
+        if (!OperatingSystem.IsLinux()) return false;
+
+        var handle = overlay.TryGetPlatformHandle();
+        if (handle is null || !string.Equals(handle.HandleDescriptor, "XID",
+                StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        IntPtr display = IntPtr.Zero;
+        try
+        {
+            display = XOpenDisplay(IntPtr.Zero);
+            if (display == IntPtr.Zero) return false;
+
+            var region = XFixesCreateRegion(display, IntPtr.Zero, 0);
+            XFixesSetWindowShapeRegion(display, (nuint)handle.Handle, ShapeInput, 0, 0, region);
+            XFixesDestroyRegion(display, region);
+            XFlush(display);
+            return true;
+        }
+        catch (Exception ex) when (ex is DllNotFoundException or EntryPointNotFoundException)
+        {
+            return false;
+        }
+        finally
+        {
+            if (display != IntPtr.Zero) TryCloseDisplay(display);
+        }
+    }
+
     private static void TryCloseDisplay(IntPtr display)
     {
         try { XCloseDisplay(display); }
         catch (DllNotFoundException) { }
     }
+
+    private const int ShapeInput = 2;
+
+    [DllImport("libXfixes.so.3")]
+    private static extern nuint XFixesCreateRegion(IntPtr display, IntPtr rectangles, int count);
+
+    [DllImport("libXfixes.so.3")]
+    private static extern void XFixesSetWindowShapeRegion(
+        IntPtr display, nuint window, int shapeKind, int xOffset, int yOffset, nuint region);
+
+    [DllImport("libXfixes.so.3")]
+    private static extern void XFixesDestroyRegion(IntPtr display, nuint region);
 
     [DllImport("libX11.so.6")]
     private static extern IntPtr XOpenDisplay(IntPtr display);

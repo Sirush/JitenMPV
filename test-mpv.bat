@@ -29,8 +29,10 @@ if errorlevel 1 (
     exit /b 1
 )
 
+REM Newest wins: bin\Debug keeps a directory per target framework it has ever been built for, and a
+REM stale one outranks the fresh build under dir's string ordering (net10.0 sorts before net9.0).
 set "EXE="
-for /f "delims=" %%F in ('dir /b /s "%ROOT%src\JitenMPV.App\bin\Debug\JitenMPV.App.exe" 2^>nul') do set "EXE=%%F"
+for /f "usebackq delims=" %%F in (`powershell -NoProfile -Command "Get-ChildItem -LiteralPath '%ROOT%src\JitenMPV.App\bin\Debug' -Recurse -Filter JitenMPV.App.exe | Sort-Object LastWriteTime -Descending | Select-Object -First 1 -ExpandProperty FullName"`) do set "EXE=%%F"
 
 if not defined EXE (
     echo ERROR: JitenMPV.App.exe not found under src\JitenMPV.App\bin\Debug.

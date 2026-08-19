@@ -11,6 +11,7 @@ using Avalonia.Media;
 using Avalonia.Media.Fonts;
 using Avalonia.Threading;
 using JitenMPV.App.Media;
+using JitenMPV.App.Overlay;
 using JitenMPV.App.Platform;
 using JitenMPV.App.Popup;
 using JitenMPV.App.ViewModels;
@@ -173,6 +174,7 @@ sealed class Program
             var presenter = new AvaloniaPopupPresenter();
             var reviewPresenter = new MiningReviewPresenter();
             var overwritePresenter = new MediaOverwritePresenter();
+            var overlaySurface = new AvaloniaSubtitleOverlaySurface();
             var host = new PluginHost(
                 pipePath,
                 logger,
@@ -183,7 +185,8 @@ sealed class Program
                 && args.Length >= 3
                 && !string.IsNullOrWhiteSpace(args[2])
                     ? args[2]
-                    : null);
+                    : null,
+                overlaySurface);
             SettingsWindow? settingsWindow = null;
             bool settingsOpening = false;
 

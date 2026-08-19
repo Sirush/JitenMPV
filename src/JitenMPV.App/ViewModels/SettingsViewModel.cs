@@ -132,6 +132,7 @@ public partial class SettingsViewModel : ViewModelBase
     [ObservableProperty] private bool _statusOverlayEnabled;
     [ObservableProperty] private bool _debugLogging;
     [ObservableProperty] private bool _debugShowHitboxes;
+    [ObservableProperty] private bool _experimentalAvaloniaRenderer;
     [ObservableProperty] private int _mouseZonePercent;
     [ObservableProperty] private bool _settingsButtonEnabled;
     [ObservableProperty] private bool _subtitleNavButtonsEnabled;
@@ -676,6 +677,7 @@ public partial class SettingsViewModel : ViewModelBase
         StatusOverlayEnabled = s.StatusOverlayEnabled;
         DebugLogging = s.DebugLogging;
         DebugShowHitboxes = s.DebugShowHitboxes;
+        ExperimentalAvaloniaRenderer = s.ExperimentalAvaloniaRenderer;
         MouseZonePercent = s.MouseZonePercent;
         SettingsButtonEnabled = s.SettingsButtonEnabled;
         SubtitleNavButtonsEnabled = s.SubtitleNavButtonsEnabled;
@@ -870,6 +872,7 @@ public partial class SettingsViewModel : ViewModelBase
             StatusOverlayEnabled = StatusOverlayEnabled,
             DebugLogging = DebugLogging,
             DebugShowHitboxes = DebugShowHitboxes,
+            ExperimentalAvaloniaRenderer = ExperimentalAvaloniaRenderer,
             MouseZonePercent = MouseZonePercent,
             SettingsButtonEnabled = SettingsButtonEnabled,
             SubtitleNavButtonsEnabled = SubtitleNavButtonsEnabled,
@@ -1477,6 +1480,7 @@ public partial class SettingsViewModel : ViewModelBase
                 StatusOverlayEnabled = defaults.StatusOverlayEnabled;
                 DebugLogging = defaults.DebugLogging;
                 DebugShowHitboxes = defaults.DebugShowHitboxes;
+                ExperimentalAvaloniaRenderer = defaults.ExperimentalAvaloniaRenderer;
                 MouseZonePercent = defaults.MouseZonePercent;
                 SettingsButtonEnabled = defaults.SettingsButtonEnabled;
                 SubtitleNavButtonsEnabled = defaults.SubtitleNavButtonsEnabled;

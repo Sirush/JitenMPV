@@ -8,7 +8,8 @@ namespace JitenMPV.Core.Plugin;
 public sealed record ColorizedSubtitle(
     string Ass,
     ParseCacheEntry? Entry,
-    IReadOnlyDictionary<(int WordId, byte ReadingIndex), UnderlineBar>? Underlines);
+    IReadOnlyDictionary<(int WordId, byte ReadingIndex), UnderlineBar>? Underlines,
+    IReadOnlyList<SubtitleRun> Runs);
 
 public sealed class SubtitleColorizer(
     JitenApiClient api,
@@ -52,22 +53,22 @@ public sealed class SubtitleColorizer(
             var iPlusOne = det.IPlusOne?.Detect(entry.Tokens, entry.VocabStates, entry.FrequencyRanks);
             var freqWords = det.Frequency?.Mark(entry.Tokens, entry.VocabStates, entry.FrequencyRanks);
 
-            var (ass, underlines) = renderer.RenderSubtitle(
+            var (ass, underlines, runs) = renderer.RenderSubtitle(
                 subtitleText, entry, iPlusOne, freqWords, revealedWords, suppressWrap);
-            return Task.FromResult(new ColorizedSubtitle(ass, entry, underlines));
+            return Task.FromResult(new ColorizedSubtitle(ass, entry, underlines, runs));
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             logger.LogError(ex, "Failed to colour subtitle from existing parse, falling back to plain rendering");
-            return Task.FromResult(
-                new ColorizedSubtitle(renderer.RenderPlain(subtitleText, suppressWrap), null, null));
+            return Task.FromResult(Plain(subtitleText, suppressWrap));
         }
     }
 
     /// Plain white, for a text with no parse to colour by. Shares the caller's wrap mode so the
     /// fallback still breaks where the resolver said it would.
     public ColorizedSubtitle Plain(string subtitleText, bool suppressWrap)
-        => new(renderer.RenderPlain(subtitleText, suppressWrap), null, null);
+        => new(renderer.RenderPlain(subtitleText, suppressWrap), null, null,
+            SubtitleRunBuilder.Plain(subtitleText));
 
     public async Task<ColorizedSubtitle> ColorizeWithRevealAsync(
         string subtitleText,
@@ -92,9 +93,9 @@ public sealed class SubtitleColorizer(
             var iPlusOne = det.IPlusOne?.Detect(entry.Tokens, entry.VocabStates, entry.FrequencyRanks);
             var freqWords = det.Frequency?.Mark(entry.Tokens, entry.VocabStates, entry.FrequencyRanks);
 
-            var (ass, underlines) = renderer.RenderSubtitle(
+            var (ass, underlines, runs) = renderer.RenderSubtitle(
                 subtitleText, entry, iPlusOne, freqWords, revealedWords, suppressWrap);
-            return new ColorizedSubtitle(ass, entry, underlines);
+            return new ColorizedSubtitle(ass, entry, underlines, runs);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {

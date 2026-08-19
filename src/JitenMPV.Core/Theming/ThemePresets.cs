@@ -81,17 +81,31 @@ public static class ThemePresets
             [KnownState.Redundant] = new() { TextColor = "#c0c0c0", OutlineColor = "#202020", OutlineSize = 2, TextOpacity = 180 }
         });
 
+    private static readonly WordStyleState UnderlinePlain = new()
+    {
+        TextColor = "#eeeeee", OutlineColor = "#000000", OutlineSize = 3
+    };
+
+    private static WordStyleState UnderlinedBy(string barColor) => new()
+    {
+        TextColor = "#eeeeee", OutlineColor = "#000000", OutlineSize = 3,
+        Underline = true, UnderlineColor = barColor, UnderlineThickness = 3
+    };
+
+    /// Every state is told apart by the colour of its bar, so the bars have to be the coloured
+    /// kind: an ASS `\u` underline can only take the primary colour.
     public static IReadOnlyDictionary<KnownState, WordStyleState> UnderlineTheme { get; } =
-        WithSuspended(new Dictionary<KnownState, WordStyleState>
+        new Dictionary<KnownState, WordStyleState>
         {
-            [KnownState.New] = new() { TextColor = "#eeeeee", OutlineColor = "#000000", OutlineSize = 3, Underline = true, ShadowColor = "#a566ef", ShadowDepth = 2 },
-            [KnownState.Young] = new() { TextColor = "#eeeeee", OutlineColor = "#000000", OutlineSize = 3, Underline = true, ShadowColor = "#e8a020", ShadowDepth = 2 },
-            [KnownState.Mature] = new() { TextColor = "#eeeeee", OutlineColor = "#000000", OutlineSize = 3 },
-            [KnownState.Blacklisted] = new() { TextColor = "#eeeeee", OutlineColor = "#000000", OutlineSize = 3 },
-            [KnownState.Due] = new() { TextColor = "#eeeeee", OutlineColor = "#000000", OutlineSize = 3, Underline = true, ShadowColor = "#e03030", ShadowDepth = 2 },
-            [KnownState.Mastered] = new() { TextColor = "#eeeeee", OutlineColor = "#000000", OutlineSize = 3 },
-            [KnownState.Redundant] = new() { TextColor = "#eeeeee", OutlineColor = "#000000", OutlineSize = 3 }
-        });
+            [KnownState.New] = UnderlinedBy("#a566ef"),
+            [KnownState.Young] = UnderlinedBy("#e8a020"),
+            [KnownState.Mature] = UnderlinePlain,
+            [KnownState.Blacklisted] = UnderlinePlain,
+            [KnownState.Due] = UnderlinedBy("#e03030"),
+            [KnownState.Mastered] = UnderlinePlain,
+            [KnownState.Redundant] = UnderlinedBy("#4b9fff"),
+            [KnownState.Suspended] = UnderlinePlain
+        };
 
     public static IReadOnlyDictionary<KnownState, WordStyleState> ToyBox { get; } =
         WithSuspended(new Dictionary<KnownState, WordStyleState>

@@ -244,6 +244,11 @@ public sealed class PluginSettings
     [JsonPropertyName("debug_show_hitboxes")]
     public bool DebugShowHitboxes { get; set; }
 
+    /// Draws the subtitle in an overlay window of this process instead of through mpv's ASS
+    /// renderer. Falls back to mpv rendering wherever the platform cannot host the overlay.
+    [JsonPropertyName("experimental_avalonia_renderer")]
+    public bool ExperimentalAvaloniaRenderer { get; set; }
+
     [JsonPropertyName("mouse_zone_percent")]
     public int MouseZonePercent { get; set; } = 65;
 

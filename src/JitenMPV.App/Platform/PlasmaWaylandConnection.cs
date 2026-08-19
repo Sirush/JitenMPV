@@ -260,6 +260,13 @@ internal sealed class PlasmaWaylandConnection
         GeometryChanged?.Invoke();
     }
 
+    internal static T? BindGlobal<T>(
+        object globals,
+        uint minimumVersion,
+        uint maximumVersion,
+        object? listener)
+        => Bind<T>(globals, minimumVersion, maximumVersion, listener);
+
     private static T? Bind<T>(
         object globals,
         uint minimumVersion,

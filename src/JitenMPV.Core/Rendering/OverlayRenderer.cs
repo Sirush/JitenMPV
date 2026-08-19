@@ -82,8 +82,11 @@ public sealed class OverlayRenderer
     }
 
     /// Underlines carries the words whose resolved style asks for a coloured bar, since style
-    /// resolution happens here and the bar overlay is written by a later stage.
-    public (string Ass, IReadOnlyDictionary<(int WordId, byte ReadingIndex), UnderlineBar>? Underlines) RenderSubtitle(
+    /// resolution happens here and the bar overlay is written by a later stage. Runs are the same
+    /// resolution the native renderer lays out, so both draw from one style decision.
+    public (string Ass,
+        IReadOnlyDictionary<(int WordId, byte ReadingIndex), UnderlineBar>? Underlines,
+        IReadOnlyList<SubtitleRun> Runs) RenderSubtitle(
         string originalText,
         ParseCacheEntry entry,
         HashSet<(int WordId, byte ReadingIndex)>? iPlusOneWords = null,
@@ -92,43 +95,20 @@ public sealed class OverlayRenderer
         bool suppressWrap = true)
     {
         var snap = _snap;
+        var (runs, underlines) = SubtitleRunBuilder.Build(
+            originalText, entry, _styleResolver, iPlusOneWords, frequencyWords, revealedWords);
+
         var sb = new StringBuilder();
         sb.Append(suppressWrap ? snap.Preamble : snap.WrappingPreamble);
 
         double border = snap.Settings.BorderSize;
-        Dictionary<(int WordId, byte ReadingIndex), UnderlineBar>? underlines = null;
-
-        int lastEnd = 0;
-        foreach (var token in entry.Tokens)
+        foreach (var run in runs)
         {
-            if (token.Start > lastEnd)
-            {
-                AssTagBuilder.AppendStyle(sb, ThemePresets.Unparsed, border);
-                AssTagBuilder.AppendEscapedText(sb, originalText, lastEnd, token.Start - lastEnd);
-            }
-
-            var style = _styleResolver.Resolve(
-                token, entry.VocabStates, iPlusOneWords, frequencyWords, entry.PitchClasses, revealedWords);
-
-            if (style.Underline == true && style.UnderlineColor is { } barColor)
-            {
-                (underlines ??= [])[(token.WordId, token.ReadingIndex)] = new UnderlineBar(
-                    barColor, style.UnderlineThickness ?? UnderlineBarRenderer.DefaultThickness);
-            }
-
-            AssTagBuilder.AppendStyle(sb, style, border);
-            AssTagBuilder.AppendEscapedText(sb, originalText, token.Start, token.Length);
-
-            lastEnd = token.Start + token.Length;
+            AssTagBuilder.AppendStyle(sb, run.Style, border);
+            AssTagBuilder.AppendEscapedText(sb, originalText, run.Start, run.Length);
         }
 
-        if (lastEnd < originalText.Length)
-        {
-            AssTagBuilder.AppendStyle(sb, ThemePresets.Unparsed, border);
-            AssTagBuilder.AppendEscapedText(sb, originalText, lastEnd, originalText.Length - lastEnd);
-        }
-
-        return (sb.ToString(), underlines);
+        return (sb.ToString(), underlines, runs);
     }
 
     public string RenderPlain(string text, bool suppressWrap = true)
