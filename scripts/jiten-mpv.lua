@@ -547,12 +547,14 @@ function bar_refresh(relayout)
 end
 
 local function set_plugin_client(name)
+    local was_connected = bar.client ~= nil
     bar.client = (name ~= nil and name ~= "") and name or nil
     local connected = bar.client ~= nil
     if not connected then
         hit_bounds = nil
         hit_bounds_supported = false
         popup_click_dismiss = false
+        if was_connected then mp.set_property_bool("sub-visibility", true) end
     end
     set_nav_keys_bound(connected)
     bar_refresh()

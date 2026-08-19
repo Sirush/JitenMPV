@@ -656,7 +656,6 @@ public sealed class PluginHost(
                 await ipcClient.RemoveOverlayAsync(StatusOverlay.StatusLayerId, cct);
                 await ipcClient.SendScriptMessageAsync(
                     LuaScriptName, "jiten-set-client", "", cct);
-                await ipcClient.SetPropertyAsync("sub-visibility", "yes", cct);
             }
             catch { }
 
