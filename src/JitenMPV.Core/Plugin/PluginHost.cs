@@ -571,15 +571,20 @@ public sealed class PluginHost(
             await ipcClient.ObservePropertyAsync("sub-visibility", 8, ct);
             await ipcClient.ObservePropertyAsync("fullscreen", 9, ct);
             await ipcClient.ObservePropertyAsync("current-gpu-context", 10, ct);
-            await ipcClient.ObservePropertyAsync("title", 11, ct);
-            await ipcClient.ObservePropertyAsync("media-title", 12, ct);
+            if (OperatingSystem.IsLinux())
+            {
+                await ipcClient.ObservePropertyAsync("title", 11, ct);
+                await ipcClient.ObservePropertyAsync("media-title", 12, ct);
+            }
 
             await ipcClient.ObservePropertyAsync("sid", 4, ct);
             await ipcClient.ObservePropertyAsync("path", 5, ct);
 
             var widthTask = ipcClient.GetPropertyAsync<int>("osd-width", ct);
             var heightTask = ipcClient.GetPropertyAsync<int>("osd-height", ct);
-            var processIdTask = ipcClient.GetPropertyAsync<int?>("pid", ct);
+            var processIdTask = OperatingSystem.IsLinux()
+                ? ipcClient.GetPropertyAsync<int?>("pid", ct)
+                : Task.FromResult<int?>(null);
             var backendTask = ipcClient.GetPropertyAsync<string?>(
                 "current-gpu-context", ct);
             var appIdTask = OperatingSystem.IsLinux()
@@ -591,7 +596,8 @@ public sealed class PluginHost(
             _mpvWindowBackend = MpvWindowBackendDetector.FromGpuContext(
                 await backendTask);
             _mpvWaylandAppId = await appIdTask;
-            await RefreshMpvWindowTitleAsync(ipcClient, ct);
+            if (OperatingSystem.IsLinux())
+                await RefreshMpvWindowTitleAsync(ipcClient, ct);
             popupPresenter.UpdateWindowContext(CurrentPopupWindowContext());
             renderer.RebuildPreamble();
 
