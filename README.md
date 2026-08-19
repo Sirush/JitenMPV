@@ -2,11 +2,11 @@
 
 
 <div align="center">
-  
+
  [![GitHub downloads](https://img.shields.io/github/downloads/Sirush/JitenMPV/total?label=downloads&labelColor=27303D&color=0D1117&logo=github&logoColor=FFFFFF&style=flat)](https://github.com/Sirush/JitenMPV/releases)
 ![star](https://img.shields.io/github/stars/Sirush/JitenMPV)
  [![Discord server](https://img.shields.io/badge/Discord-join-5865F2?logo=discord&logoColor=white)](https://discord.gg/cZWM7b4wzk)
- 
+
 </div>
 
 An mpv plugin that colours Japanese subtitles by how well you know each word, powered by [**Jiten**](https://jiten.moe).
@@ -30,13 +30,21 @@ Subtitles are parsed as they play, each word coloured by its state in your Jiten
 - [mpv](https://mpv.io/)
 - A [Jiten](https://jiten.moe) account and API key
 - ffmpeg, for audio and clip mining. JitenMPV can download it for you.
-- Windows, Linux or macOS. On Linux the dictionary popup needs X11/XWayland.
+- Windows, Linux or macOS. Linux supports Plasma Wayland and X11/XWayland.
 
-On a Wayland desktop, add this to `~/.config/mpv/mpv.conf` and restart mpv:
+On Plasma with window-management protocol v18 or newer, JitenMPV and mpv use native Wayland with
+accurate popup placement, including windowed, fullscreen and multi-monitor setups. JitenMPV follows
+mpv's reported GPU context and probes the compositor protocols directly; no desktop-name guess,
+permission prompt or mpv configuration is required.
+
+Other Wayland compositors use native Wayland with approximate placement. To make the dictionary
+popup follow the cursor through X11/XWayland, add this to `~/.config/mpv/mpv.conf`:
 
 ```ini
 gpu-context=x11vk,x11egl
 ```
+
+Use `JITEN_MPV_WINDOWING=x11` or `wayland` to override automatic detection.
 
 ## Installation
 
@@ -92,6 +100,7 @@ If mpv still reports the plugin being killed after all of that (seen on macOS 26
 | Program | `%APPDATA%\jiten-mpv\` | `~/.local/share/jiten-mpv/` (`$XDG_DATA_HOME`) |
 | Settings | `%APPDATA%\jiten-mpv\` | `~/.config/jiten-mpv/` (`$XDG_CONFIG_HOME`) |
 | mpv script | `%APPDATA%\mpv\scripts\`, or `portable_config\scripts\` beside `mpv.exe` | `~/.config/mpv/scripts/` |
+| Desktop registration | — | `~/.local/share/applications/jiten-mpv.desktop` |
 
 Set `JITEN_MPV_EXE` if you keep the executable somewhere else.
 

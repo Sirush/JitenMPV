@@ -12,6 +12,8 @@ public sealed class PopupManager
     private volatile bool _mouseOverPopup;
 
     public bool IsVisible => _presenter.IsVisible;
+    public bool RequiresPointerTransferGrace =>
+        _presenter.RequiresPointerTransferGrace;
     public (int WordId, byte ReadingIndex)? CurrentWord => _currentWord;
     public event Action<PopupAction>? ActionClicked;
     public event Action<int>? DeckSelected;

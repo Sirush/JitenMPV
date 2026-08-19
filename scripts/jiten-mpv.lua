@@ -72,6 +72,20 @@ end
 
 local startup = read_startup_settings()
 
+-- Sandboxed mpv instances can all report the same namespace PID. Keep the random token for the
+-- private IPC socket, but leave Wayland's app ID alone: compositors use the standard mpv identity
+-- to resolve its desktop entry and icon. The plugin distinguishes native windows by PID or title.
+local mpv_instance_token = tostring(mp.get_property("pid"))
+local mpv_wayland_app_id = nil
+if not is_windows then
+    local ok, temp_path = pcall(os.tmpname)
+    local unique_suffix = ok and temp_path and temp_path:match("([^/]+)$") or nil
+    if ok and temp_path then os.remove(temp_path) end
+    unique_suffix = unique_suffix or string.format("%.0f", mp.get_time() * 1000000)
+    mpv_instance_token = mpv_instance_token .. "-" .. unique_suffix
+    mpv_wayland_app_id = mp.get_property("options/wayland-app-id")
+end
+
 local plugin_started = false
 
 -- The plugin hides mpv's own subtitles for as long as it is drawing its coloured ones. If it dies
@@ -532,55 +546,6 @@ function bar_refresh(relayout)
     bar_render()
 end
 
--- JitenMPV draws subtitles in an OSD overlay and deliberately keeps sub-visibility off. Discover
--- whichever active input.conf keys toggle that property instead of assuming mpv's default v key:
--- a user who moved the command keeps their chosen key, and a repurposed v remains untouched.
-local subtitle_toggle_binding_ids = {}
-
-local function toggles_sub_visibility(command)
-    if type(command) ~= "string" then return false end
-    command = command:lower()
-    return command:find("cycle sub-visibility", 1, true) ~= nil
-        or command:find("cycle-values sub-visibility", 1, true) ~= nil
-end
-
-local function clear_subtitle_toggle_bindings()
-    for _, id in ipairs(subtitle_toggle_binding_ids) do mp.remove_key_binding(id) end
-    subtitle_toggle_binding_ids = {}
-end
-
-local function refresh_subtitle_toggle_bindings()
-    clear_subtitle_toggle_bindings()
-    if not bar.client then return end
-
-    local bindings = mp.get_property_native("input-bindings") or {}
-    local active_by_key = {}
-    for _, binding in ipairs(bindings) do
-        local priority = binding.priority or 0
-        local key = binding.key
-        local current = key and active_by_key[key] or nil
-        -- Later entries win equal-priority ties, matching input.conf's last binding wins behavior.
-        -- Script-owned bindings drop out before ranking: mpv unbinds only on the next idle tick, so
-        -- the binding cleared just above is still listed here and outranks the input.conf entry.
-        if key and key ~= "" and priority >= 0 and not binding.owner
-           and (not current or priority >= (current.priority or 0)) then
-            active_by_key[key] = binding
-        end
-    end
-
-    for key, binding in pairs(active_by_key) do
-        if toggles_sub_visibility(binding.cmd) then
-            local id = "jiten-subtitle-visibility-" .. tostring(#subtitle_toggle_binding_ids + 1)
-            subtitle_toggle_binding_ids[#subtitle_toggle_binding_ids + 1] = id
-            mp.add_forced_key_binding(key, id, function()
-                if bar.client then
-                    mp.commandv("script-message-to", bar.client, "jiten-toggle-subtitles")
-                end
-            end)
-        end
-    end
-end
-
 local function set_plugin_client(name)
     bar.client = (name ~= nil and name ~= "") and name or nil
     local connected = bar.client ~= nil
@@ -590,10 +555,18 @@ local function set_plugin_client(name)
         popup_click_dismiss = false
     end
     set_nav_keys_bound(connected)
-    refresh_subtitle_toggle_bindings()
     bar_refresh()
     apply_mouse_area()
 end
+
+-- Let mpv resolve default, remapped, compound and runtime bindings. JitenMPV owns the visible
+-- subtitle layer while connected, so a request to show mpv's native subtitles toggles that layer
+-- instead and immediately restores the property the plugin intentionally keeps disabled.
+mp.observe_property("sub-visibility", "bool", function(_, visible)
+    if not visible or not bar.client then return end
+    mp.set_property_bool("sub-visibility", false)
+    mp.commandv("script-message-to", bar.client, "jiten-toggle-subtitles")
+end)
 
 local function initialize()
     if plugin_started then return end
@@ -601,9 +574,9 @@ local function initialize()
     local ipc_path = mp.get_property("input-ipc-server")
     if not ipc_path or ipc_path == "" then
         if package.config:sub(1, 1) == "\\" then
-            ipc_path = "\\\\.\\pipe\\mpv-jiten-" .. mp.get_property("pid")
+            ipc_path = "\\\\.\\pipe\\mpv-jiten-" .. mpv_instance_token
         else
-            ipc_path = "/tmp/mpv-jiten-" .. mp.get_property("pid")
+            ipc_path = "/tmp/mpv-jiten-" .. mpv_instance_token
         end
         mp.set_property("input-ipc-server", ipc_path)
     end
@@ -625,7 +598,7 @@ local function initialize()
     mp.command_native_async({
         name = "subprocess",
         playback_only = false,
-        args = { exe, "plugin", ipc_path }
+        args = { exe, "plugin", ipc_path, mpv_wayland_app_id or "" }
     }, function()
         plugin_started = false
         set_plugin_client(nil)
@@ -825,7 +798,6 @@ end)
 
 -- A loop range from the previous file would trap playback in a stretch of this one.
 mp.register_event("file-loaded", function()
-    refresh_subtitle_toggle_bindings()
     if not loop.enabled then return end
     loop.enabled = false
     loop_clear()

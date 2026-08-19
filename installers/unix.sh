@@ -53,6 +53,18 @@ sha256_of() {
     fi
 }
 
+is_wayland_session() {
+    [ "${JITEN_MPV_WINDOWING:-}" != "x11" ] &&
+        { [ "${XDG_SESSION_TYPE:-}" = "wayland" ] || [ -n "${WAYLAND_DISPLAY:-}" ]; }
+}
+
+has_libx11() {
+    { ldconfig -p 2>/dev/null | grep -q 'libX11\.so\.6'; } ||
+        [ -e /usr/lib/libX11.so.6 ] ||
+        [ -e /usr/lib64/libX11.so.6 ] ||
+        [ -e /usr/lib/x86_64-linux-gnu/libX11.so.6 ]
+}
+
 require curl
 require tar
 command -v sha256sum >/dev/null 2>&1 || require shasum
@@ -111,14 +123,12 @@ else
     "$TEMP/$BIN" install
 fi
 
-# The dictionary popup positions itself through X11; without libX11 it still opens, anchored to the
-# subtitle instead of the cursor. Worth saying once here rather than fielding it as a bug.
 if [ "$(uname -s)" = "Linux" ]; then
-    if ! { ldconfig -p 2>/dev/null | grep -q 'libX11\.so\.6'; } &&
-       [ ! -e /usr/lib/libX11.so.6 ] && [ ! -e /usr/lib64/libX11.so.6 ] &&
-       [ ! -e /usr/lib/x86_64-linux-gnu/libX11.so.6 ]; then
+    if is_wayland_session; then
+        echo "Wayland: native mode enabled; exact popup capabilities are probed at runtime."
+        echo "If exact placement is unavailable, use mpv through X11/XWayland."
+    elif ! has_libx11; then
         echo
-        echo "note: libX11 was not found. Subtitle coloring works, but the dictionary popup cannot"
-        echo "      follow the cursor. Install libx11 for full positioning."
+        echo "note: libX11 was not found; install it so the dictionary popup can follow the cursor."
     fi
 fi

@@ -1,7 +1,11 @@
 using System;
 using System.Runtime.InteropServices;
+using System.Threading;
+using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
+using JitenMPV.App.Popup;
+using JitenMPV.Core.Interaction;
 
 namespace JitenMPV.App.Platform;
 
@@ -11,31 +15,47 @@ namespace JitenMPV.App.Platform;
 /// </summary>
 internal static class X11MpvWindowBridge
 {
-    public static PixelPoint? TranslateToRoot(long? mpvWindowId, double x, double y)
+    public static bool TryGetClientGeometry(
+        long? mpvWindowId,
+        out GlobalLogicalPoint origin,
+        out LogicalSize size)
     {
-        if (!OperatingSystem.IsLinux() || mpvWindowId is not > 0) return null;
+        origin = default;
+        size = default;
+        if (!OperatingSystem.IsLinux() || mpvWindowId is not > 0)
+            return false;
 
         IntPtr display = IntPtr.Zero;
         try
         {
             display = XOpenDisplay(IntPtr.Zero);
-            if (display == IntPtr.Zero) return null;
+            if (display == IntPtr.Zero)
+                return false;
+
+            var window = (nuint)mpvWindowId.Value;
+            if (XGetGeometry(
+                    display, window, out _, out _, out _,
+                    out var width, out var height, out _, out _) == 0)
+                return false;
 
             var root = XDefaultRootWindow(display);
-            return XTranslateCoordinates(
-                display, (nuint)mpvWindowId.Value, root,
-                (int)Math.Round(x), (int)Math.Round(y),
-                out var rootX, out var rootY, out _)
-                ? new PixelPoint(rootX, rootY)
-                : null;
+            if (!XTranslateCoordinates(
+                    display, window, root, 0, 0,
+                    out var rootX, out var rootY, out _))
+                return false;
+
+            origin = new GlobalLogicalPoint(rootX, rootY);
+            size = new LogicalSize(width, height);
+            return true;
         }
         catch (Exception ex) when (ex is DllNotFoundException or EntryPointNotFoundException)
         {
-            return null;
+            return false;
         }
         finally
         {
-            if (display != IntPtr.Zero) TryCloseDisplay(display);
+            if (display != IntPtr.Zero)
+                TryCloseDisplay(display);
         }
     }
 
@@ -91,9 +111,95 @@ internal static class X11MpvWindowBridge
         out int destinationX, out int destinationY, out nuint child);
 
     [DllImport("libX11.so.6")]
+    private static extern int XGetGeometry(
+        IntPtr display,
+        nuint drawable,
+        out nuint root,
+        out int x,
+        out int y,
+        out uint width,
+        out uint height,
+        out uint borderWidth,
+        out uint depth);
+
+    [DllImport("libX11.so.6")]
     private static extern int XSetTransientForHint(
         IntPtr display, nuint window, nuint transientFor);
 
     [DllImport("libX11.so.6")]
     private static extern int XFlush(IntPtr display);
+}
+
+internal sealed class X11MpvWindowGeometryProvider : IMpvWindowGeometryProvider
+{
+    private static readonly OutputInfo UnknownOutput = new(
+        null, null, default, default, 1, null);
+
+    public event Action? GeometryChanged
+    {
+        add { }
+        remove { }
+    }
+
+    public GeometryProviderStatus Status => GeometryProviderStatus.Ready;
+
+    public ValueTask<MpvWindowGeometry?> GetGeometryAsync(
+        PopupWindowContext context,
+        CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        if (!X11MpvWindowBridge.TryGetClientGeometry(
+                context.WindowId, out var origin, out var size))
+            return ValueTask.FromResult<MpvWindowGeometry?>(null);
+
+        return ValueTask.FromResult<MpvWindowGeometry?>(new MpvWindowGeometry(
+            origin, size, UnknownOutput, context.IsFullscreen, 1));
+    }
+
+    public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+}
+
+internal sealed class X11PopupSurfaceBackend : IPopupSurfaceBackend
+{
+    private long? _mpvWindowId;
+
+    public PopupBackendCapabilities Capabilities =>
+        PopupBackendCapabilities.ExactGlobalPosition
+        | PopupBackendCapabilities.AboveFullscreen
+        | PopupBackendCapabilities.MultiMonitor
+        | PopupBackendCapabilities.NonActivating
+        | PopupBackendCapabilities.Interactive;
+
+    public void UpdateContext(PopupWindowContext context) =>
+        _mpvWindowId = context.WindowId;
+
+    public ValueTask PrepareAsync(Window window, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        X11MpvWindowBridge.SetTransientOwner(window, _mpvWindowId);
+        return ValueTask.CompletedTask;
+    }
+
+    public ValueTask SetPositionAsync(
+        Window window,
+        GlobalLogicalPoint position,
+        LogicalSize size,
+        OutputInfo output,
+        CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        window.Position = new PixelPoint(
+            checked((int)Math.Round(position.X)),
+            checked((int)Math.Round(position.Y)));
+        X11MpvWindowBridge.SetTransientOwner(window, _mpvWindowId);
+        return ValueTask.CompletedTask;
+    }
+
+    public ValueTask DetachAsync(Window window, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        return ValueTask.CompletedTask;
+    }
+
+    public ValueTask DisposeAsync() => ValueTask.CompletedTask;
 }

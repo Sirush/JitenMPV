@@ -13,6 +13,7 @@ public sealed class InteractionHandler : IDisposable
 {
     private const int SubtitleOverlayId = PluginHost.SubtitleOverlayId;
     private const long DebounceMs = 16;
+    private const int PopupPointerTransferGraceMs = 100;
     private const string LuaTarget = "jiten_mpv";
     private const string ClickPassthrough = "jiten-passthrough-click";
     private const string DoubleClickPassthrough = "jiten-passthrough-dbl";
@@ -279,6 +280,17 @@ public sealed class InteractionHandler : IDisposable
         CancelPendingPopup();
 
         if (StickyPopup && _popup.IsVisible) return;
+
+        if (_popup.IsVisible
+            && _popup.RequiresPointerTransferGrace
+            && !_popup.IsMouseOverPopup)
+        {
+            // On Wayland the compositor reports that the pointer left mpv before Avalonia reports
+            // that it entered the popup's separate surface. Give that cross-surface handoff one
+            // frame to settle; otherwise the popup closes itself while the pointer is moving into
+            // it. A real leave to the desktop still closes after this short grace period.
+            await Task.Delay(PopupPointerTransferGraceMs, ct);
+        }
 
         if (!_popup.IsVisible)
             TaskHelper.CancelAndDispose(ref _autoHideCts);

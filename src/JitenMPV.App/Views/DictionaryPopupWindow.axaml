@@ -5,7 +5,7 @@
         xmlns:interaction="using:JitenMPV.Core.Interaction"
         x:Class="JitenMPV.App.Views.DictionaryPopupWindow"
         x:DataType="vm:PopupViewModel"
-        SystemDecorations="None"
+        WindowDecorations="None"
         TransparencyLevelHint="Transparent"
         Background="Transparent"
         ShowInTaskbar="False"

@@ -79,6 +79,12 @@ public sealed class MpvIpcClient(string pipePath, ILogger logger) : IAsyncDispos
         return result?.GetString();
     }
 
+    public async Task<string?> ExpandTextAsync(string text, CancellationToken ct)
+    {
+        var result = await SendCommandAsync(["expand-text", text], ct);
+        return result?.GetString();
+    }
+
     public Task ShowOverlayAsync(int id, string assText, CancellationToken ct)
         => SendNamedCommandAsync(new JsonObject
         {
