@@ -26,8 +26,11 @@ internal sealed class SubtitleOverlayControl : Control
         Focusable = false;
     }
 
-    /// True once a render pass found no Skia lease, which leaves the surface unable to draw at all.
+    /// True once a render pass found no Skia lease. A resize or reparent can cost one pass its
+    /// lease without the platform being unable to draw, so the caller clears this and retries.
     public bool LeaseUnavailable => _painter.LeaseUnavailable;
+
+    public void ClearLeaseFailure() => _painter.ClearLeaseFailure();
 
     public void SetFrame(LaidOutSubtitle? frame)
     {
@@ -76,6 +79,8 @@ internal sealed class SubtitlePainter(SubtitleFontStore fonts) : IDisposable
     private bool _disposed;
 
     public bool LeaseUnavailable { get; private set; }
+
+    public void ClearLeaseFailure() => LeaseUnavailable = false;
 
     public void Paint(ImmediateDrawingContext context, LaidOutSubtitle frame)
     {

@@ -734,7 +734,6 @@ public sealed class PluginHost(
 
             await ipcClient.ChangeListAsync("watch-later-options", "remove", "sub-visibility", ct);
             await ipcClient.SetPropertyAsync("sub-visibility", "no", ct);
-            await ipcClient.ObservePropertyAsync("sub-text", 1, ct);
             await ipcClient.ObservePropertyAsync("osd-width", 2, ct);
             await ipcClient.ObservePropertyAsync("osd-height", 3, ct);
             await ipcClient.ObservePropertyAsync("window-id", 6, ct);
@@ -772,6 +771,10 @@ public sealed class PluginHost(
             PublishWindowContext();
             renderer.RebuildPreamble();
             overlaySurface?.UpdateOsd(osd.Width, osd.Height);
+
+            // Observed last: mpv delivers a property's current value immediately, so a line already
+            // on screen would otherwise be drawn before the OSD size and mpv's window are known.
+            await ipcClient.ObservePropertyAsync("sub-text", 1, ct);
 
             var clientName = await ipcClient.GetClientNameAsync(ct);
             logger.LogInformation("IPC client name: {Name}", clientName);

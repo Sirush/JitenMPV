@@ -28,6 +28,11 @@ internal interface IMpvOverlayBackend : IAsyncDisposable
     OverlayGeometry? TryGetGeometry(PopupWindowContext context);
 
     OverlayLogicalSize Apply(Window window, OverlayGeometry geometry);
+
+    /// True when the overlay is no longer where Apply put it. A reparent — which a fullscreen
+    /// toggle causes — moves it without mpv's geometry changing, so the caller's cache would
+    /// otherwise never place it back.
+    bool NeedsReapply(Window window) => false;
 }
 
 internal static class OverlayGeometryApplier
@@ -35,10 +40,15 @@ internal static class OverlayGeometryApplier
     /// Window.Position is physical everywhere Avalonia exposes it, while Width/Height are logical.
     public static OverlayLogicalSize ApplyPhysical(Window window, OverlayGeometry geometry)
     {
-        window.Position = new PixelPoint(
+        var position = new PixelPoint(
             (int)Math.Round(geometry.X), (int)Math.Round(geometry.Y));
+        window.Position = position;
 
-        double scale = window.RenderScaling > 0 ? window.RenderScaling : 1;
+        // Scaled from the output being moved onto, not the window itself: a window that has just
+        // been mapped, or is mid-move, still reports the scaling of wherever it used to be.
+        double scale = window.Screens.ScreenFromPoint(position)?.Scaling
+                       ?? (window.RenderScaling > 0 ? window.RenderScaling : 1);
+        if (scale <= 0) scale = 1;
         var size = new OverlayLogicalSize(geometry.Width / scale, geometry.Height / scale);
         window.Width = size.Width;
         window.Height = size.Height;

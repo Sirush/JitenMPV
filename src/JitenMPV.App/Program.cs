@@ -174,7 +174,7 @@ sealed class Program
             var presenter = new AvaloniaPopupPresenter();
             var reviewPresenter = new MiningReviewPresenter();
             var overwritePresenter = new MediaOverwritePresenter();
-            var overlaySurface = new AvaloniaSubtitleOverlaySurface();
+            var overlaySurface = new AvaloniaSubtitleOverlaySurface(logger);
             var host = new PluginHost(
                 pipePath,
                 logger,

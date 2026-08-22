@@ -17,14 +17,22 @@ internal sealed class X11OverlayBackend : IMpvOverlayBackend
     private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(250);
 
     private readonly DispatcherTimer _poll;
+    private Window? _window;
+    private OverlayGeometry? _lastApplied;
     private long? _mpvWindowId;
     private bool _inputRegionCleared;
     private bool _polling;
 
     public X11OverlayBackend()
     {
-        _poll = new DispatcherTimer(PollInterval, DispatcherPriority.Background,
-            (_, _) => GeometryChanged?.Invoke());
+        _poll = new DispatcherTimer(PollInterval, DispatcherPriority.Background, (_, _) =>
+        {
+            // Restated every tick: the window manager drops transient-for when it reparents the
+            // overlay, and once mpv's geometry settles nothing else would ask for it again.
+            if (_window is { } window)
+                X11MpvWindowBridge.SetTransientOwner(window, _mpvWindowId);
+            GeometryChanged?.Invoke();
+        });
     }
 
     public bool IsSupported => _inputRegionCleared;
@@ -33,6 +41,7 @@ internal sealed class X11OverlayBackend : IMpvOverlayBackend
 
     public ValueTask PrepareAsync(Window window, PopupWindowContext context, CancellationToken ct)
     {
+        _window = window;
         _mpvWindowId = context.WindowId;
         _inputRegionCleared = X11MpvWindowBridge.SetEmptyInputRegion(window);
         if (!_inputRegionCleared) return ValueTask.CompletedTask;
@@ -64,11 +73,22 @@ internal sealed class X11OverlayBackend : IMpvOverlayBackend
         // X11 drops transient-for whenever the window manager re-parents the overlay, which a move
         // between monitors or a fullscreen toggle does.
         X11MpvWindowBridge.SetTransientOwner(window, _mpvWindowId);
+        _lastApplied = geometry;
         return size;
+    }
+
+    public bool NeedsReapply(Window window)
+    {
+        if (_lastApplied is not { } applied) return false;
+
+        var position = window.Position;
+        return position.X != (int)Math.Round(applied.X)
+               || position.Y != (int)Math.Round(applied.Y);
     }
 
     public ValueTask DisposeAsync()
     {
+        _window = null;
         _polling = false;
         _poll.Stop();
         return ValueTask.CompletedTask;
