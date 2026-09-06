@@ -13,11 +13,15 @@ public sealed record MediaCaptureRequest(
     int WordId, byte ReadingIndex, string? SurfaceForm, string? SubtitleText,
     string Spelling, string Reading, int? DeckId);
 
+/// NoMedia means something that was asked for could not be produced; Skipped means the user
+/// deselected everything in the review window.
 public enum MediaCaptureOutcome
 {
-    Captured, Disabled, NotEntitled, NoFfmpeg, NoMedia, Failed, Cancelled, InFlight
+    Captured, Disabled, NotEntitled, NoFfmpeg, NoMedia, Skipped, Failed, Cancelled, InFlight
 }
 
+/// <param name="Problem">What was asked for but not produced, phrased for the OSD ("no screenshot").
+/// Null when everything requested was captured.</param>
 public sealed record MediaCaptureResult(
     MediaCaptureOutcome Outcome,
     CapturedImage? Image = null,
@@ -25,10 +29,12 @@ public sealed record MediaCaptureResult(
     string? Sentence = null,
     int? DeckId = null,
     bool AnimationFellBack = false,
-    bool FfmpegMissing = false)
+    bool FfmpegMissing = false,
+    string? Problem = null)
 {
     public bool Cancelled => Outcome == MediaCaptureOutcome.Cancelled;
     public bool HasUploads => Image is not null || Audio is not null;
+    public bool CaptureFailed => Outcome is MediaCaptureOutcome.NoMedia or MediaCaptureOutcome.Failed;
 
     public static readonly MediaCaptureResult Disabled = new(MediaCaptureOutcome.Disabled);
     public static readonly MediaCaptureResult NotEntitled = new(MediaCaptureOutcome.NotEntitled);
@@ -58,6 +64,7 @@ public sealed class MediaCaptureCoordinator(
     private volatile bool _overwriteAcceptedThisSession;
     private volatile bool _entitlementNoticeShown;
     private volatile bool _ffmpegNoticeShown;
+    private volatile bool _codecNoticeShown;
 
     /// Hides every OSD layer the window screenshot would otherwise bake into the card. Set by
     /// PluginHost, which owns the popup and the status overlay.
@@ -85,6 +92,14 @@ public sealed class MediaCaptureCoordinator(
     {
         if (_ffmpegNoticeShown) return false;
         _ffmpegNoticeShown = true;
+        return true;
+    }
+
+    /// The codec fallback costs quality, so the user hears about it once rather than per card.
+    public bool ShouldReportCodecFallback()
+    {
+        if (_codecNoticeShown) return false;
+        _codecNoticeShown = true;
         return true;
     }
 
@@ -121,7 +136,7 @@ public sealed class MediaCaptureCoordinator(
         {
             logger.LogError(ex, "Media capture failed for {WordId}:{ReadingIndex}",
                 request.WordId, request.ReadingIndex);
-            return new MediaCaptureResult(MediaCaptureOutcome.Failed);
+            return new MediaCaptureResult(MediaCaptureOutcome.Failed, Problem: "media capture failed");
         }
         finally
         {
@@ -134,7 +149,13 @@ public sealed class MediaCaptureCoordinator(
         PluginSettings s, CancellationToken ct)
     {
         var props = await MpvCaptureProbe.ReadAsync(ipc, logger, ct);
-        if (props is null) return new MediaCaptureResult(MediaCaptureOutcome.Failed);
+        if (props is null)
+            return new MediaCaptureResult(MediaCaptureOutcome.Failed, Problem: "could not read playback state");
+
+        logger.LogInformation(
+            "Capture: ffmpeg={Ffmpeg} path={Path} seekable={Seekable} audioTrack={Audio} subTrack={Sub} timeline={Timeline}",
+            ffmpegPath ?? "none", props.VideoPath, props.IsSeekableFile, props.AudioTrackIndex,
+            props.SubtitleTrackIndex, timeline.IsLoaded ? "loaded" : "empty");
 
         var (timebase, subStart, subEnd) = ResolveRange(props, request.SubtitleText);
 
@@ -169,12 +190,18 @@ public sealed class MediaCaptureCoordinator(
         var existingTask = FetchExistingAsync(request, ct);
 
         var audioWanted = s.MediaCaptureAudio && runner is not null && timebase.AudioTrackIndex is not null;
+        if (s.MediaCaptureAudio && !audioWanted)
+            logger.LogWarning("Audio capture requested but unavailable: ffmpeg={Ffmpeg} audioTrack={Track}",
+                runner is not null, timebase.AudioTrackIndex);
+
         var margin = Math.Max(0, s.MediaAudioWindowMarginSeconds);
         var wave = WaveformData.Empty;
         var audioCapture = runner is null ? null : new AudioCapture(runner, temp, s, logger);
+        var audioCodec = AudioCodec.Opus;
 
         if (audioWanted && audioCapture is not null)
         {
+            audioCodec = await AudioCodec.SelectAsync(runner!, logger, ct);
             wave = await audioCapture.DecodeWindowAsync(
                 timebase,
                 timebase.Clamp(timebase.SubtitleToAudioTime(subStart) - margin),
@@ -219,7 +246,8 @@ public sealed class MediaCaptureCoordinator(
                 still, wave, selStart, selEnd, audioSubStart, audioSubEnd,
                 context, currentIndex, request.SurfaceForm, existing,
                 includeImage, includeAudio, animated, includeAudio, timeline.IsLoaded,
-                s.MediaAudioBitrateKbps, clipPlan, measureClip, DeckOptions, request.DeckId), ct);
+                audioCodec.BytesPerSecond(s.MediaAudioBitrateKbps, s.MediaAudioStereo),
+                clipPlan, measureClip, DeckOptions, request.DeckId), ct);
 
             if (answer is null) return MediaCaptureResult.Cancel;
 
@@ -243,7 +271,7 @@ public sealed class MediaCaptureCoordinator(
             switch (answer.Choice)
             {
                 case MediaOverwriteChoice.CancelMine: return MediaCaptureResult.Cancel;
-                case MediaOverwriteChoice.SkipMedia: return MediaCaptureResult.NoMedia;
+                case MediaOverwriteChoice.SkipMedia: return new MediaCaptureResult(MediaCaptureOutcome.Skipped);
             }
 
             if (answer.DontAskAgain) _overwriteAcceptedThisSession = true;
@@ -269,18 +297,32 @@ public sealed class MediaCaptureCoordinator(
 
         CapturedAudio? audio = null;
         if (includeAudio && audioCapture is not null)
-            audio = await audioCapture.CaptureAsync(timebase, selStart, selEnd, audioSubStart, audioSubEnd, ct);
+            audio = await audioCapture.CaptureAsync(timebase, audioCodec, selStart, selEnd, audioSubStart, audioSubEnd, ct);
 
         var ffmpegMissing = runner is null
                             && (s.MediaCaptureAudio || s.MediaCaptureImageAnimated
                                 || s.MediaSubtitleBurn == MediaSubtitleBurn.Original);
 
+        var imageMissing = includeImage && image is null;
+        var audioMissing = includeAudio && audio is null;
+        var problem = (imageMissing, audioMissing) switch
+        {
+            (true, true) => "no screenshot or audio",
+            (true, false) => "no screenshot",
+            (false, true) => "no audio",
+            _ => null
+        };
+
         if (image is null && audio is null)
-            return MediaCaptureResult.NoMedia with { FfmpegMissing = ffmpegMissing };
+        {
+            var outcome = problem is null ? MediaCaptureOutcome.Skipped : MediaCaptureOutcome.NoMedia;
+            logger.LogInformation("Nothing to upload: {Reason}", problem ?? "nothing selected");
+            return new MediaCaptureResult(outcome, FfmpegMissing: ffmpegMissing, Problem: problem);
+        }
 
         return new MediaCaptureResult(
             MediaCaptureOutcome.Captured, image, audio, sentence, deckId,
-            animationFellBack, ffmpegMissing);
+            animationFellBack, ffmpegMissing, problem);
     }
 
     public Task<MediaUploadOutcome> UploadAsync(
@@ -327,11 +369,19 @@ public sealed class MediaCaptureCoordinator(
 
         // Preferred over mpv's range because it covers the whole file rather than what has been
         // demuxed, and carries the cue text that proves the right line was found.
-        if (subtitleText is not null && timeline.IsLoaded
-            && timeline.At(TimeSpan.FromSeconds(playhead)) is { } cue
-            && string.Equals(Normalize(cue.Text), Normalize(subtitleText), StringComparison.Ordinal))
+        if (subtitleText is not null && timeline.IsLoaded)
         {
-            return (timebase, cue.Start.TotalSeconds, cue.End.TotalSeconds);
+            var cue = timeline.At(TimeSpan.FromSeconds(playhead));
+            if (cue is not null && string.Equals(Normalize(cue.Text), Normalize(subtitleText), StringComparison.Ordinal))
+                return (timebase, cue.Start.TotalSeconds, cue.End.TotalSeconds);
+
+            logger.LogWarning(
+                "Timeline cue at {Playhead:0.00}s does not match the displayed line; using mpv's sub-start/sub-end. cue=\"{Cue}\" shown=\"{Shown}\"",
+                playhead, cue?.Text.ReplaceLineEndings(" ") ?? "(none)", subtitleText.ReplaceLineEndings(" "));
+        }
+        else if (subtitleText is not null)
+        {
+            logger.LogInformation("No subtitle timeline loaded; capture range comes from mpv's sub-start/sub-end");
         }
 
         var start = props.SubStart ?? playhead - FallbackHalfSpanSeconds;

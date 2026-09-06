@@ -16,6 +16,8 @@ public sealed class FfmpegRunner(string ffmpegPath, ILogger logger)
 {
     private static readonly string[] CommonArgs = ["-hide_banner", "-nostdin", "-y"];
 
+    public string ExecutablePath => ffmpegPath;
+
     public async Task<FfmpegResult> RunAsync(
         IEnumerable<string> args, TimeSpan timeout, CancellationToken ct)
     {

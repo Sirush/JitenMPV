@@ -149,7 +149,7 @@ public partial class MiningReviewViewModel : ViewModelBase
         {
             var duration = Math.Max(0, SelectionEnd - SelectionStart);
             // Opus is VBR, so this only has to be close enough to warn before the size cap bites.
-            var kb = (int)(duration * _data.AudioBitrateKbps / 8);
+            var kb = (int)(duration * _data.AudioBytesPerSecond / 1024);
             return $"{duration:0.00} s - about {kb} KB";
         }
     }

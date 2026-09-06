@@ -26,10 +26,9 @@ public sealed record MiningReviewData(
     bool AnimatedRequested,
     bool AudioAvailable,
     bool TimelineLoaded,
-    int AudioBitrateKbps,
+    double AudioBytesPerSecond,
     AnimationPlan? ClipPlan,
-    /// Measures the clip's real size by encoding a sample. Run only when the user asks for a clip,
-    /// so the window still opens immediately.
+    /// Measures the clip's real size by encoding a sample
     Func<CancellationToken, Task<long?>>? MeasureClipSize,
     IReadOnlyList<MiningDeckOption> DeckOptions,
     int? PresetDeckId);

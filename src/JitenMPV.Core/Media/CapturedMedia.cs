@@ -15,7 +15,8 @@ public sealed record CapturedAudio(
     string ContentType,
     string FileName,
     double Start,
-    double End)
+    double End,
+    AudioCodec Codec)
 {
     public double Duration => End - Start;
 }
