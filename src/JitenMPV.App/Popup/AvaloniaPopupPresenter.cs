@@ -5,6 +5,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Media;
 using Avalonia.Threading;
+using JitenMPV.App.Platform;
 using JitenMPV.App.ViewModels;
 using JitenMPV.App.Views;
 using JitenMPV.Core.Config;
@@ -130,6 +131,7 @@ public sealed class AvaloniaPopupPresenter : IPopupPresenter
             if (!window.IsVisible)
                 window.Show();
             window.Opacity = 1;
+            WindowsPopupWindowInterop.EnsureTopmost(window);
 
             _isVisible = true;
 

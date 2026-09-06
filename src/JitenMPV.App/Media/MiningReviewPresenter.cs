@@ -35,8 +35,11 @@ public sealed class MiningReviewPresenter : IMiningReviewPresenter
 
             window.Show();
             MacOsPluginIntegration.ActivateApplication();
-            window.Topmost = false;
-            window.Topmost = true;
+            if (!System.OperatingSystem.IsWindows())
+            {
+                window.Topmost = false;
+                window.Topmost = true;
+            }
             window.Activate();
 
             return await completion.Task;
