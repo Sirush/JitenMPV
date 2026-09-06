@@ -138,9 +138,15 @@ public sealed class MiningService(
     /// False for mining triggered as a side effect of another action, where a "already in deck"
     /// notice would talk over the feedback for the action the user actually asked for.
     /// </param>
+    /// <param name="stateBefore">
+    /// The word's state before the action that triggered this mine. A grade writes its new state
+    /// into the parse cache before the auto-mine runs, so the cache cannot answer "was it new".
+    /// Null means the mine was deliberate and the new-words-only media gate does not apply.
+    /// </param>
     public async Task<bool> MineAsync(
         int wordId, byte readingIndex, int deckId,
-        string? subtitleText, MpvIpcClient ipc, CancellationToken ct, bool reportSkip = true)
+        string? subtitleText, MpvIpcClient ipc, CancellationToken ct, bool reportSkip = true,
+        KnownState? stateBefore = null)
     {
         var s = _settings;
         if (!s.MiningEnabled) return false;
@@ -169,9 +175,11 @@ public sealed class MiningService(
             source = await GetMediaTitleAsync(ipc, ct);
         }
 
+        var mediaGated = s.MiningMediaNewOnly && stateBefore is { } before && before != KnownState.New;
+
         // Capture runs even when the deck add is skipped: re-mining an existing card is how a user
         // replaces a bad screenshot or a clipped audio sample.
-        var capture = media is not null
+        var capture = media is not null && !mediaGated
             ? await media.CaptureAndConfirmAsync(new MediaCaptureRequest(
                                                                          wordId, readingIndex, surfaceForm, subtitleText, spelling,
                                                                          word?.Reading ?? "", deckId), ipc, ct)

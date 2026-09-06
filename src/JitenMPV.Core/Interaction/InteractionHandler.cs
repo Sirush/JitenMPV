@@ -577,7 +577,7 @@ public sealed class InteractionHandler : IDisposable
             && _mining.ResolveDeckWithoutPicker() is { } autoDeck)
         {
             await _mining.MineAsync(wordId, readingIndex, autoDeck, _sourceText, _ipc, ct,
-                reportSkip: false);
+                reportSkip: false, stateBefore: state);
         }
 
         if (_settings.PopupHideAfterAction)

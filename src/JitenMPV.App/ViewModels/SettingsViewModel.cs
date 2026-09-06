@@ -469,6 +469,7 @@ public partial class SettingsViewModel : ViewModelBase
 
     [ObservableProperty] private bool _miningToStudyDeck;
     [ObservableProperty] private bool _miningAutoOnReview;
+    [ObservableProperty] private bool _miningMediaNewOnly;
     [ObservableProperty] private bool _miningSkipIfPresent;
     [ObservableProperty] private StudyDeckOption? _selectedStudyDeck;
     [ObservableProperty] private string _deckStatus = "";
@@ -658,6 +659,7 @@ public partial class SettingsViewModel : ViewModelBase
         MiningCaptureSentence = s.MiningCaptureSentence;
         MiningToStudyDeck = s.MiningToStudyDeck;
         MiningAutoOnReview = s.MiningAutoOnReview;
+        MiningMediaNewOnly = s.MiningMediaNewOnly;
         MiningSkipIfPresent = s.MiningSkipIfPresent;
         DoubleClickAction = s.DoubleClickAction;
         if (s.MiningStudyDeckId is { } deckId)
@@ -858,6 +860,7 @@ public partial class SettingsViewModel : ViewModelBase
             MiningCaptureSentence = MiningCaptureSentence,
             MiningToStudyDeck = MiningToStudyDeck,
             MiningAutoOnReview = MiningAutoOnReview,
+            MiningMediaNewOnly = MiningMediaNewOnly,
             MiningSkipIfPresent = MiningSkipIfPresent,
             MiningStudyDeckId = SelectedStudyDeck?.DeckId,
             DoubleClickAction = DoubleClickAction,
@@ -1408,6 +1411,7 @@ public partial class SettingsViewModel : ViewModelBase
                 MiningCaptureSentence = defaults.MiningCaptureSentence;
                 MiningToStudyDeck = defaults.MiningToStudyDeck;
                 MiningAutoOnReview = defaults.MiningAutoOnReview;
+                MiningMediaNewOnly = defaults.MiningMediaNewOnly;
                 MiningSkipIfPresent = defaults.MiningSkipIfPresent;
                 DoubleClickAction = defaults.DoubleClickAction;
                 SelectedStudyDeck = null;

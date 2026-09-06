@@ -700,6 +700,10 @@
                             IsChecked="{Binding MiningToStudyDeck}" />
                   <CheckBox Content="Also mine when grading a card"
                             IsChecked="{Binding MiningAutoOnReview}" />
+                  <CheckBox Content="Only attach media when the graded word was new"
+                            IsChecked="{Binding MiningMediaNewOnly}"
+                            IsEnabled="{Binding MiningAutoOnReview}"
+                            Margin="24,0,0,0" />
                   <CheckBox Content="Skip words already in the target list"
                             IsChecked="{Binding MiningSkipIfPresent}" />
 
@@ -805,7 +809,7 @@
                       <CheckBox Content="Trim the silence automatically" IsChecked="{Binding MediaAudioAutoTrim}" />
                     </StackPanel>
 
-                    <CheckBox Content="Check everything before saving" IsChecked="{Binding MediaReviewPopup}" />
+                    <CheckBox Content="Review the screenshot and audio before saving" IsChecked="{Binding MediaReviewPopup}" />
                     <Grid ColumnDefinitions="130,*" IsVisible="{Binding MediaReviewPopup}"
                           Margin="24,0,0,0">
                       <TextBlock Text="Nearby lines" Classes="field-label" />

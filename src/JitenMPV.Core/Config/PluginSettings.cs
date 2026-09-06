@@ -190,6 +190,11 @@ public sealed class PluginSettings
     [JsonPropertyName("mining_auto_on_review")]
     public bool MiningAutoOnReview { get; set; }
 
+    /// Restricts media capture on the mine chained off a grade to words that were New before the
+    /// grade; a deliberate mine (button, keybind, double-click) always captures.
+    [JsonPropertyName("mining_media_new_only")]
+    public bool MiningMediaNewOnly { get; set; }
+
     /// Skips the request when the word is already in the target deck, so re-mining cannot bump
     /// its occurrence count or overwrite the sentence already attached to it.
     [JsonPropertyName("mining_skip_if_present")]
