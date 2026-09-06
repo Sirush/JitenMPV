@@ -1,5 +1,6 @@
 using JitenMPV.Core.Api;
 using JitenMPV.Core.Api.Models;
+using JitenMPV.Core.Net;
 using JitenMPV.Core.Plus;
 using Microsoft.Extensions.Logging;
 
@@ -45,6 +46,10 @@ public sealed class MediaUploader(JitenApiClient api, JitenPlusService plus, ILo
         int wordId, byte readingIndex, byte[] bytes, string fileName, string contentType,
         CancellationToken ct)
     {
+        var transport = JitenHttp.UseCurl ? "system curl" : "in-process HTTP";
+        logger.LogInformation("Uploading {File} ({Type}, {Size} KB) for {WordId}:{ReadingIndex} over {Transport}",
+            fileName, contentType, bytes.Length / 1024, wordId, readingIndex, transport);
+
         try
         {
             var result = await api.UploadCardMediaAsync(
@@ -54,21 +59,27 @@ public sealed class MediaUploader(JitenApiClient api, JitenPlusService plus, ILo
                 plus.ApplyQuota(result.UsedBytes, result.MaxBytes);
             else if (result.IsSuccess)
                 plus.ApplyQuotaDelta(result.StoredBytes);
+            else
+                logger.LogWarning("Upload of {File} for {WordId}:{ReadingIndex} was refused: {Status} {Error}",
+                    fileName, wordId, readingIndex, result.Status, result.Error ?? "no detail");
 
             return result;
         }
         catch (JitenPlusRequiredException ex)
         {
+            logger.LogWarning("Upload of {File} refused: Jiten+ required ({Message})", fileName, ex.Message);
             plus.MarkRevoked(ex.Message);
             return CardMediaUploadResult.Rejected(ex.Message);
         }
         catch (JitenApiKeyRejectedException)
         {
+            logger.LogWarning("Upload of {File} refused: API key rejected", fileName);
             return CardMediaUploadResult.Rejected("API key rejected");
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            logger.LogError(ex, "Card media upload failed");
+            logger.LogError(ex, "Upload of {File} ({Size} KB) for {WordId}:{ReadingIndex} over {Transport} failed",
+                fileName, bytes.Length / 1024, wordId, readingIndex, transport);
             return CardMediaUploadResult.Failed(ex.Message);
         }
     }

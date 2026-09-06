@@ -29,6 +29,7 @@ public sealed class MiningService(
 
     /// Tracked per deck: the same word can legitimately be mined into more than one list.
     private readonly Lock _minedLock = new();
+
     private readonly HashSet<(int WordId, byte ReadingIndex, int DeckId)> _mined = [];
 
     public void UpdateSettings(PluginSettings newSettings) => _settings = newSettings;
@@ -58,10 +59,10 @@ public sealed class MiningService(
         lock (_minedLock)
         {
             var mined = _mined
-                .Where(m => m.WordId == wordId && m.ReadingIndex == readingIndex)
-                .Select(m => m.DeckId)
-                .Where(id => !studyDeckIds.Contains(id))
-                .ToList();
+                        .Where(m => m.WordId == wordId && m.ReadingIndex == readingIndex)
+                        .Select(m => m.DeckId)
+                        .Where(id => !studyDeckIds.Contains(id))
+                        .ToList();
 
             if (mined.Count == 0) return studyDeckIds;
             return [..studyDeckIds, ..mined];
@@ -96,7 +97,7 @@ public sealed class MiningService(
                 media.DeckOptions = [..wordLists.Select(d => new MiningDeckOption(d.UserStudyDeckId, d.Name))];
 
             logger.LogInformation("Loaded {Count} study decks ({Lists} word lists)",
-                decks.Count, wordLists.Count);
+                                  decks.Count, wordLists.Count);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -129,6 +130,7 @@ public sealed class MiningService(
             await status.ShowAsync(ipc, "No target word list selected (Ctrl+J > Features > Mining > Target word list)", 2500, ct);
             return false;
         }
+
         return await MineAsync(wordId, readingIndex, deckId, subtitleText, ipc, ct);
     }
 
@@ -171,8 +173,8 @@ public sealed class MiningService(
         // replaces a bad screenshot or a clipped audio sample.
         var capture = media is not null
             ? await media.CaptureAndConfirmAsync(new MediaCaptureRequest(
-                wordId, readingIndex, surfaceForm, subtitleText, spelling,
-                word?.Reading ?? "", deckId), ipc, ct)
+                                                                         wordId, readingIndex, surfaceForm, subtitleText, spelling,
+                                                                         word?.Reading ?? "", deckId), ipc, ct)
             : MediaCaptureResult.Disabled;
 
         if (capture.Cancelled) return false;
@@ -183,13 +185,19 @@ public sealed class MiningService(
 
         if (alreadyInDeck && !capture.HasUploads)
         {
-            if (reportSkip)
+            if (capture.CaptureFailed)
+            {
+                await status.ShowAsync(ipc,
+                                       $"{spelling}: {capture.Problem ?? "media capture failed"} (see debug.log)", 3000, ct);
+            }
+            else if (reportSkip)
             {
                 var target = DeckName(deckId);
                 await status.ShowAsync(ipc,
-                    target is not null ? $"{spelling}: already in {target}" : $"{spelling}: already mined",
-                    2000, ct);
+                                       target is not null ? $"{spelling}: already in {target}" : $"{spelling}: already mined",
+                                       2000, ct);
             }
+
             return false;
         }
 
@@ -205,11 +213,28 @@ public sealed class MiningService(
                 ? await media.UploadAsync(wordId, readingIndex, capture, ct)
                 : null;
 
-            await status.ShowAsync(ipc,
-                BuildStatusMessage(spelling, DeckName(deckId), alreadyInDeck, capture, upload), 2500, ct);
+            if (upload is not null)
+                logger.LogInformation(
+                                      "Card media upload for {WordId}:{ReadingIndex}: image={Image} audio={Audio} error={Error}",
+                                      wordId, readingIndex,
+                                      UploadState(upload.ImageAttempted, upload.ImageUploaded),
+                                      UploadState(upload.AudioAttempted, upload.AudioUploaded),
+                                      upload.Error ?? "none");
+
+            var message = BuildStatusMessage(spelling, DeckName(deckId), alreadyInDeck, capture, upload);
+            var problem = DescribeProblem(capture, upload);
+            await status.ShowAsync(ipc, problem is null ? message : $"{message}, {problem}", problem is null ? 2500 : 4000, ct);
+
+            if (capture.Audio is { Codec: var codec } && codec != AudioCodec.Opus
+                                                      && media is not null && media.ShouldReportCodecFallback())
+            {
+                await status.ShowAsync(ipc,
+                                       $"Your ffmpeg has no {AudioCodec.Opus.Label} encoder, audio is saved as {codec.Label}",
+                                       4000, ct);
+            }
 
             logger.LogInformation("Mined word {WordId}:{ReadingIndex} into deck {DeckId}",
-                wordId, readingIndex, deckId);
+                                  wordId, readingIndex, deckId);
             return true;
         }
         catch (JitenApiKeyRejectedException)
@@ -250,6 +275,29 @@ public sealed class MiningService(
             await status.ShowAsync(ipc, "Clips and audio need ffmpeg installed", 3000, ct);
     }
 
+    private static string UploadState(bool attempted, bool uploaded)
+        => !attempted ? "skipped" : uploaded ? "ok" : "failed";
+
+    private static string? DescribeProblem(MediaCaptureResult capture, MediaUploadOutcome? upload)
+    {
+        if (upload is { QuotaExceeded: true } or { Revoked: true }) return null;
+
+        var parts = new List<string>();
+        if (capture.Problem is { } captureProblem)
+            parts.Add(captureProblem);
+
+        if (upload is not null)
+        {
+            var imageFailed = upload is { ImageAttempted: true, ImageUploaded: false };
+            var audioFailed = upload is { AudioAttempted: true, AudioUploaded: false };
+            if (imageFailed && audioFailed) parts.Add("media upload failed");
+            else if (imageFailed) parts.Add("screenshot upload failed");
+            else if (audioFailed) parts.Add("audio upload failed");
+        }
+
+        return parts.Count == 0 ? null : string.Join(", ", parts) + " (see debug.log)";
+    }
+
     private static string BuildStatusMessage(
         string spelling, string? deckName, bool alreadyInDeck,
         MediaCaptureResult capture, MediaUploadOutcome? upload)
@@ -259,14 +307,6 @@ public sealed class MiningService(
 
         if (upload is { Revoked: true })
             return $"{spelling}: mined, but no Jiten+ so nothing was attached";
-
-        if (upload is { ImageAttempted: true, AudioAttempted: true }
-            && upload.ImageUploaded != upload.AudioUploaded)
-        {
-            return upload.ImageUploaded
-                ? $"{spelling}: screenshot saved, audio did not"
-                : $"{spelling}: audio saved, screenshot did not";
-        }
 
         var badges = upload is null || !upload.AnyUploaded
             ? ""

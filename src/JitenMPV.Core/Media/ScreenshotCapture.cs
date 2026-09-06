@@ -64,30 +64,92 @@ public sealed class ScreenshotCapture(
                          && !_subtitlesFilterUnavailable
                          && request.Timebase.IsSeekableFile;
 
+        var mpvFlags = request.Burn == MediaSubtitleBurn.Colored ? "window" : "video";
+        var playheadSeek = request.Timebase.Clamp(request.Timebase.PlaybackToVideoTime(request.PlaybackPosition));
+
         if (ffmpeg is null || (!burnWanted && request.Source == MediaImageSource.MpvFrame))
         {
-            var flags = request.Burn == MediaSubtitleBurn.Colored ? "window" : "video";
-            return await MpvScreenshotAsync(ipc, flags, ct);
+            var shot = await MpvScreenshotAsync(ipc, mpvFlags, ct);
+            if (shot is not null) return shot;
+
+            // Both mpv paths failed, so the clean frame is grabbed from the file instead
+            if (ffmpeg is null || !request.Timebase.IsSeekableFile) return null;
+            logger.LogInformation("mpv screenshot failed; grabbing the frame with ffmpeg instead");
+            return await FfmpegFrameAsync(request, playheadSeek, burn: false, ct);
         }
 
         // Original burn-in and the midpoint source both need a decode ffmpeg controls; a window
         // capture cannot be seeked, so Colored + midpoint falls back to the video frame.
         var seek = request.Source == MediaImageSource.SubtitleMidpoint
-            ? request.Timebase.SubtitleToVideoTime((request.SubtitleStart + request.SubtitleEnd) / 2)
-            : request.Timebase.PlaybackToVideoTime(request.PlaybackPosition);
+            ? request.Timebase.Clamp(
+                request.Timebase.SubtitleToVideoTime((request.SubtitleStart + request.SubtitleEnd) / 2))
+            : playheadSeek;
 
-        var frame = await FfmpegFrameAsync(request, request.Timebase.Clamp(seek), burnWanted, ct);
+        var frame = await FfmpegFrameAsync(request, seek, burnWanted, ct);
         if (frame is not null) return frame;
 
-        return await MpvScreenshotAsync(ipc, request.Burn == MediaSubtitleBurn.Colored ? "window" : "video", ct);
+        return await MpvScreenshotAsync(ipc, mpvFlags, ct);
     }
 
     private async Task<string?> MpvScreenshotAsync(MpvIpcClient ipc, string flags, CancellationToken ct)
     {
-        var path = temp.PathFor($"frame-{Guid.NewGuid():N}.png");
+        var shot = await MpvScreenshotOnceAsync(ipc, flags, ct);
+        if (shot is not null || flags == "window") return shot;
+
+        var previous = await GetScreenshotSwAsync(ipc, ct);
+        if (previous is true) return null;
+
         try
         {
-            await ipc.ScreenshotToFileAsync(path, flags, ct);
+            await ipc.SetPropertyAsync("screenshot-sw", true, ct);
+            logger.LogInformation("Retrying the mpv screenshot with screenshot-sw");
+            return await MpvScreenshotOnceAsync(ipc, flags, ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogWarning(ex, "screenshot-sw retry failed");
+            return null;
+        }
+        finally
+        {
+            // Restored under a fresh token so a cancelled capture cannot leave the user's mpv on
+            // the software path.
+            await RestoreScreenshotSwAsync(ipc, previous);
+        }
+    }
+
+    private async Task<bool?> GetScreenshotSwAsync(MpvIpcClient ipc, CancellationToken ct)
+    {
+        try
+        {
+            return await ipc.GetPropertyAsync<bool?>("screenshot-sw", ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogDebug(ex, "Could not read screenshot-sw");
+            return null;
+        }
+    }
+
+    private async Task RestoreScreenshotSwAsync(MpvIpcClient ipc, bool? previous)
+    {
+        try
+        {
+            await ipc.SetPropertyAsync("screenshot-sw", previous ?? false, CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Could not restore screenshot-sw");
+        }
+    }
+
+    private async Task<string?> MpvScreenshotOnceAsync(MpvIpcClient ipc, string flags, CancellationToken ct)
+    {
+        var path = temp.PathFor($"frame-{Guid.NewGuid():N}.png");
+        string? error;
+        try
+        {
+            error = await ipc.ScreenshotToFileAsync(path, flags, ct);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -95,7 +157,16 @@ public sealed class ScreenshotCapture(
             return null;
         }
 
-        return File.Exists(path) ? path : null;
+        if (error is not null)
+        {
+            logger.LogWarning("mpv screenshot ({Flags}) failed: {Error}", flags, error);
+            return null;
+        }
+
+        if (File.Exists(path)) return path;
+
+        logger.LogWarning("mpv reported the screenshot ({Flags}) as taken but {Path} does not exist", flags, path);
+        return null;
     }
 
     private async Task<string?> FfmpegFrameAsync(

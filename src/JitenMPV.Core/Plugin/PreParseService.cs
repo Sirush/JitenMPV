@@ -32,11 +32,17 @@ public sealed class PreParseService(
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "Failed to parse subtitle file");
+            logger.LogWarning(ex, "Could not read or parse the subtitle file {Path}", subtitleFilePath);
             return;
         }
 
-        logger.LogInformation("Parsed {Count} cues from file", cues.Count);
+        if (cues.Count == 0)
+            logger.LogWarning(
+                "No cues read from {Path}: unsupported format or empty file, so the timeline stays empty",
+                subtitleFilePath);
+        else
+            logger.LogInformation("Parsed {Count} cues from file", cues.Count);
+
         timeline?.Load(cues);
         if (parseTexts)
             await BatchParseTextsAsync(ExtractUniqueTexts(cues), ct);
@@ -81,7 +87,7 @@ public sealed class PreParseService(
         // and the mining sentence is taken from that timeline.
         if (await TrackIndexResolver.FindAsync(ipc, "sub", ct) is not { } subIndex)
         {
-            logger.LogInformation("No subtitle track selected, skipping embedded extraction");
+            logger.LogInformation("No subtitle track selected in mpv, so no embedded subtitles to extract");
             return null;
         }
 
@@ -94,14 +100,18 @@ public sealed class PreParseService(
 
             if (!result.Succeeded)
             {
-                logger.LogWarning("ffmpeg extraction failed (exit {Code}): {Error}",
-                    result.ExitCode, result.ErrorTail);
+                logger.LogWarning("ffmpeg could not extract subtitle stream {Index} from {Path} (exit {Code}): {Error}",
+                    subIndex, videoPath, result.ExitCode, result.ErrorTail);
                 return null;
             }
 
             var srtOutput = Encoding.UTF8.GetString(bytes);
             if (string.IsNullOrWhiteSpace(srtOutput))
+            {
+                logger.LogWarning("ffmpeg extracted subtitle stream {Index} from {Path} but it was empty (bitmap subtitles cannot be converted to text)",
+                    subIndex, videoPath);
                 return null;
+            }
 
             var cues = SrtParser.Parse(srtOutput);
             logger.LogInformation("Extracted {Count} subtitle cues via ffmpeg", cues.Count);

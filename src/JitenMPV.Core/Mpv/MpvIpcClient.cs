@@ -14,7 +14,7 @@ public sealed class MpvIpcClient(string pipePath, ILogger logger) : IAsyncDispos
     };
 
     private readonly MpvConnection _connection = new(logger);
-    private readonly ConcurrentDictionary<int, TaskCompletionSource<JsonElement?>> _pending = new();
+    private readonly ConcurrentDictionary<int, PendingRequest> _pending = new();
     private int _nextRequestId;
 
     public event Action<string?>? SubtitleTextChanged;
@@ -27,23 +27,31 @@ public sealed class MpvIpcClient(string pipePath, ILogger logger) : IAsyncDispos
         await _connection.ConnectAsync(pipePath, ct);
     }
 
-    private Task<JsonElement?> SendCommandAsync(object[] command, CancellationToken ct)
+    /// <param name="Error">mpv's error string, null when the command succeeded.</param>
+    public sealed record MpvReply(JsonElement? Data, string? Error);
+
+    private sealed record PendingRequest(TaskCompletionSource<MpvReply> Completion, string Label);
+
+    private async Task<JsonElement?> SendCommandAsync(object[] command, CancellationToken ct)
+        => (await SendCommandWithReplyAsync(command, ct)).Data;
+
+    private Task<MpvReply> SendCommandWithReplyAsync(object[] command, CancellationToken ct)
     {
         var request = new JsonObject { ["command"] = JsonSerializer.SerializeToNode(command, MpvJson) };
-        return SendRawAsync(request, ct);
+        return SendRawAsync(request, command[0]?.ToString() ?? "?", ct);
     }
 
-    private Task<JsonElement?> SendNamedCommandAsync(JsonObject command, CancellationToken ct)
+    private async Task<JsonElement?> SendNamedCommandAsync(JsonObject command, CancellationToken ct)
     {
         var request = new JsonObject { ["command"] = command };
-        return SendRawAsync(request, ct);
+        return (await SendRawAsync(request, command["name"]?.ToString() ?? "?", ct)).Data;
     }
 
-    private async Task<JsonElement?> SendRawAsync(JsonObject request, CancellationToken ct)
+    private async Task<MpvReply> SendRawAsync(JsonObject request, string label, CancellationToken ct)
     {
         var requestId = Interlocked.Increment(ref _nextRequestId);
-        var tcs = new TaskCompletionSource<JsonElement?>(TaskCreationOptions.RunContinuationsAsynchronously);
-        _pending[requestId] = tcs;
+        var tcs = new TaskCompletionSource<MpvReply>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _pending[requestId] = new PendingRequest(tcs, label);
 
         await using var reg = ct.Register(() =>
         {
@@ -122,8 +130,9 @@ public sealed class MpvIpcClient(string pipePath, ILogger logger) : IAsyncDispos
 
     /// <param name="flags">mpv screenshot flags: "video" (clean frame), "subtitles", or "window"
     /// (as displayed, including every OSD layer).</param>
-    public Task ScreenshotToFileAsync(string path, string flags, CancellationToken ct)
-        => SendCommandAsync(["screenshot-to-file", path, flags], ct);
+    /// <returns>mpv's error string when the screenshot failed, null when it reported success.</returns>
+    public async Task<string?> ScreenshotToFileAsync(string path, string flags, CancellationToken ct)
+        => (await SendCommandWithReplyAsync(["screenshot-to-file", path, flags], ct)).Error;
 
     public Task RemoveOverlayAsync(int id, CancellationToken ct)
         => SendNamedCommandAsync(new JsonObject
@@ -155,9 +164,21 @@ public sealed class MpvIpcClient(string pipePath, ILogger logger) : IAsyncDispos
                 {
                     var reqId = reqIdEl.GetInt32();
                     JsonElement? resultData = root.TryGetProperty("data", out var dataEl) ? dataEl.Clone() : null;
+                    var error = root.TryGetProperty("error", out var errorEl)
+                                && errorEl.ValueKind == JsonValueKind.String
+                                && errorEl.GetString() is { } e && e != "success"
+                        ? e
+                        : null;
 
-                    if (_pending.TryRemove(reqId, out var tcs))
-                        tcs.TrySetResult(resultData);
+                    if (_pending.TryRemove(reqId, out var pending))
+                    {
+                        if (error is not null && pending.Label != "get_property")
+                            logger.LogWarning("mpv rejected {Command}: {Error}", pending.Label, error);
+                        else if (error is not null)
+                            logger.LogDebug("mpv rejected {Command}: {Error}", pending.Label, error);
+
+                        pending.Completion.TrySetResult(new MpvReply(resultData, error));
+                    }
                 }
                 else if (root.TryGetProperty("event", out var eventEl))
                 {
@@ -174,8 +195,8 @@ public sealed class MpvIpcClient(string pipePath, ILogger logger) : IAsyncDispos
             }
         }
 
-        foreach (var tcs in _pending.Values)
-            tcs.TrySetCanceled();
+        foreach (var pending in _pending.Values)
+            pending.Completion.TrySetCanceled();
         _pending.Clear();
     }
 

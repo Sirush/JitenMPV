@@ -138,7 +138,7 @@
                  TextWrapping="Wrap" />
       <TextBlock Text="Select more text to expand the mined example sentence."
                  FontSize="11" Foreground="#71717a" IsVisible="{Binding TimelineLoaded}" />
-      <TextBlock Text="Turn on pre-parsing to pick up the lines around this one."
+      <TextBlock Text="The lines around this one could not be read from the subtitle track, so only this line is offered."
                  FontSize="11" Foreground="#71717a" IsVisible="{Binding !TimelineLoaded}" />
     </StackPanel>
 
