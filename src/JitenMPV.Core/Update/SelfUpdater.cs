@@ -28,6 +28,11 @@ public static class SelfUpdater
     {
         TryDelete(Installer.InstalledExecutablePath + ".old");
         TryDelete(Installer.InstalledExecutablePath + ".new");
+        if (Installer.LegacyInstalledExecutablePath is { } legacy)
+        {
+            TryDelete(legacy + ".old");
+            TryDelete(legacy + ".new");
+        }
     }
 
     public static async Task<UpdateResult> UpdateAsync(
@@ -37,7 +42,7 @@ public static class SelfUpdater
             return new UpdateResult(false, "No release is published for this platform.");
 
         var target = Installer.InstalledExecutablePath;
-        if (!File.Exists(target))
+        if (!Installer.ExecutableExists)
             return new UpdateResult(false,
                 "JitenMPV is not installed for mpv yet, so there is nothing to replace.");
 
@@ -63,11 +68,15 @@ public static class SelfUpdater
             if (RemoveSupersededNatives() is { } blocked)
                 return new UpdateResult(false, blocked);
 
-            Swap(extracted, target);
+            var signWarning = Swap(extracted, target);
 
             var message = $"Updated to {update.Version}. It takes effect the next time mpv starts.";
+            // The new binary's install --lua-only also retires a legacy-named macOS executable,
+            // after the script that probes both names is on disk.
             if (!RefreshLuaScript(target))
                 message += " The mpv script could not be refreshed; run the install once from settings.";
+            if (signWarning is not null)
+                message += " " + signWarning;
 
             return new UpdateResult(true, message);
         }
@@ -164,7 +173,7 @@ public static class SelfUpdater
             .EnumerateFiles(unpacked, Installer.ExecutableName, SearchOption.AllDirectories)
             .FirstOrDefault()
             ?? Directory
-                .EnumerateFiles(unpacked, "JitenMPV", SearchOption.AllDirectories)
+                .EnumerateFiles(unpacked, "JitenMPV.App", SearchOption.AllDirectories)
                 .FirstOrDefault();
     }
 
@@ -191,14 +200,15 @@ public static class SelfUpdater
         return null;
     }
 
-    private static void Swap(string source, string target)
+    /// <returns>A signing warning to surface, or null.</returns>
+    private static string? Swap(string source, string target)
     {
         var staged = target + ".new";
         var previous = target + ".old";
 
         File.Copy(source, staged, overwrite: true);
         ExecutableFile.SetExecutable(staged);
-        ExecutableFile.ResignAdHoc(staged);
+        var signWarning = ExecutableFile.ResignAdHoc(staged);
 
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
         {
@@ -217,13 +227,14 @@ public static class SelfUpdater
                 throw;
             }
 
-            return;
+            return signWarning;
         }
 
         // Never write through the path of a running binary on Unix: Linux answers ETXTBSY, and
         // macOS caches code-signing state per inode, so an in-place overwrite can get later
         // launches killed. Renaming a new inode over the path leaves the running process on its own.
         File.Move(staged, target, overwrite: true);
+        return signWarning;
     }
 
     /// The incoming binary carries the authoritative copy of the mpv script, so it writes its own

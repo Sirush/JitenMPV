@@ -25,15 +25,41 @@ public static class Installer
     private const string LuaFileName = "jiten-mpv.lua";
     private const string LinuxDesktopFileName = "jiten-mpv.desktop";
 
-    public static string ExecutableName => AppPaths.ExecutableName("JitenMPV.App");
+    private const string LegacyMacExecutableName = "JitenMPV.App";
+
+    public static string ExecutableName
+        => RuntimeInformation.IsOSPlatform(OSPlatform.OSX) ? "JitenMPV" : AppPaths.ExecutableName("JitenMPV.App");
 
     public static string InstalledExecutablePath => Path.Combine(AppPaths.AppDir, ExecutableName);
+
+    public static string? LegacyInstalledExecutablePath
+        => RuntimeInformation.IsOSPlatform(OSPlatform.OSX)
+            ? Path.Combine(AppPaths.AppDir, LegacyMacExecutableName)
+            : null;
+
+    public static bool ExecutableExists
+        => File.Exists(InstalledExecutablePath)
+           || (LegacyInstalledExecutablePath is { } legacy && File.Exists(legacy));
 
     /// True when both halves of an install are present. The executable alone is not enough: mpv
     /// never loads the plugin without the script, and the script alone spawns a path that is empty.
     public static bool IsInstalled(string? mpvConfigDir = null)
-        => File.Exists(InstalledExecutablePath)
+        => ExecutableExists
            && File.Exists(Path.Combine(MpvConfigLocator.Resolve(mpvConfigDir).ScriptsDir, LuaFileName));
+
+    public static string? MigrateLegacyExecutable()
+    {
+        if (LegacyInstalledExecutablePath is not { } legacy || !File.Exists(legacy)) return null;
+
+        if (File.Exists(InstalledExecutablePath))
+        {
+            File.Delete(legacy);
+            return $"Removed old program:  {legacy}";
+        }
+
+        File.Move(legacy, InstalledExecutablePath);
+        return $"Program renamed:      {InstalledExecutablePath}";
+    }
 
     public static InstallResult Install(InstallOptions options)
     {
@@ -61,6 +87,10 @@ public static class Installer
                 WriteEmbeddedScript(scriptPath);
 
             steps.Add($"Script installed:     {scriptPath}");
+
+            if (!options.DryRun && MigrateLegacyExecutable() is { } migrateNote)
+                steps.Add(migrateNote);
+
             if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
             {
                 var desktopPath = LinuxDesktopFilePath();
@@ -97,12 +127,14 @@ public static class Installer
                 steps.Add($"No script at:         {scriptPath}");
             }
 
-            if (removeProgram && File.Exists(InstalledExecutablePath))
+            if (removeProgram)
             {
-                // Running from the copy being deleted is the normal case on Windows, where an open
-                // executable cannot be removed; saying so beats a bare access-denied.
-                if (!options.DryRun) File.Delete(InstalledExecutablePath);
-                steps.Add($"Removed program:      {InstalledExecutablePath}");
+                foreach (var program in new[] { InstalledExecutablePath, LegacyInstalledExecutablePath })
+                {
+                    if (program is null || !File.Exists(program)) continue;
+                    if (!options.DryRun) File.Delete(program);
+                    steps.Add($"Removed program:      {program}");
+                }
             }
 
             if (removeProgram && RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
@@ -174,10 +206,10 @@ public static class Installer
         var staged = destination + ".new";
         File.Copy(source, staged, overwrite: true);
         ExecutableFile.SetExecutable(staged);
-        ExecutableFile.ResignAdHoc(staged);
+        var signWarning = ExecutableFile.ResignAdHoc(staged);
         File.Move(staged, destination, overwrite: true);
 
-        return $"Program copied:       {destination}";
+        return $"Program copied:       {destination}" + (signWarning is null ? "" : $"\n{signWarning}");
     }
 
     /// Overwrites unconditionally: the embedded copy is the source of truth, and this doubles as

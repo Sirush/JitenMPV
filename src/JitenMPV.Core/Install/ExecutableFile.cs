@@ -18,9 +18,11 @@ public static class ExecutableFile
 
     /// Gatekeeper on macOS 26 kills binaries whose ad-hoc signature was made on another machine,
     /// so the release's CI signature must be replaced with one made here.
-    public static void ResignAdHoc(string path)
+    /// <returns>Null when signed, otherwise a warning for the user; the CI signature then stays in
+    /// place, which Macs that accept foreign ad-hoc signatures still run.</returns>
+    public static string? ResignAdHoc(string path)
     {
-        if (!RuntimeInformation.IsOSPlatform(OSPlatform.OSX)) return;
+        if (!RuntimeInformation.IsOSPlatform(OSPlatform.OSX)) return null;
 
         try
         {
@@ -28,13 +30,22 @@ public static class ExecutableFile
             {
                 UseShellExecute = false,
                 CreateNoWindow = true,
+                RedirectStandardError = true,
                 ArgumentList = { "--force", "--sign", "-", path }
             });
-            process?.WaitForExit((int)TimeSpan.FromSeconds(30).TotalMilliseconds);
+            if (process is null) return "Warning: codesign could not be started; macOS may refuse to run JitenMPV.";
+
+            var stderr = process.StandardError.ReadToEnd();
+            if (!process.WaitForExit((int)TimeSpan.FromSeconds(30).TotalMilliseconds))
+                return "Warning: codesign did not finish; macOS may refuse to run JitenMPV.";
+
+            return process.ExitCode == 0
+                ? null
+                : $"Warning: re-signing failed (codesign exit {process.ExitCode}: {stderr.Trim()}); macOS may refuse to run JitenMPV.";
         }
         catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or IOException)
         {
-            // The CI signature stays in place; Macs that accept foreign ad-hoc signatures still run it.
+            return $"Warning: re-signing failed ({ex.Message}); macOS may refuse to run JitenMPV.";
         }
     }
 }

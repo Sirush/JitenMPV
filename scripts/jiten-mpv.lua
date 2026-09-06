@@ -25,11 +25,18 @@ local function get_exe_path()
     -- Must match AppPaths.AppDir on the .NET side; a mismatch means mpv spawns a path that does
     -- not exist and the plugin silently never starts.
     local xdg_data = os.getenv("XDG_DATA_HOME")
+    local dir
     if xdg_data and xdg_data:sub(1, 1) == "/" then
-        return utils.join_path(utils.join_path(xdg_data, "jiten-mpv"), "JitenMPV.App")
+        dir = utils.join_path(xdg_data, "jiten-mpv")
+    else
+        dir = home_path(".local", "share", "jiten-mpv")
     end
 
-    return home_path(".local", "share", "jiten-mpv", "JitenMPV.App")
+    for _, name in ipairs({ "JitenMPV", "JitenMPV.App" }) do
+        local candidate = utils.join_path(dir, name)
+        if utils.file_info(candidate) then return candidate end
+    end
+    return utils.join_path(dir, "JitenMPV.App")
 end
 
 -- Config lives beside neither the exe nor mpv's own config on Unix: it follows XDG_CONFIG_HOME
@@ -570,6 +577,33 @@ mp.observe_property("sub-visibility", "bool", function(_, visible)
     mp.commandv("script-message-to", bar.client, "jiten-toggle-subtitles")
 end)
 
+-- A plugin that dies within seconds of spawning never got to run. On macOS the usual reason is
+-- Gatekeeper refusing the locally signed binary, which shows as a signal death with no log of
+-- its own, so the fix is named here rather than left for the user to guess.
+local function report_plugin_exit(spawned_at, result, err)
+    if result and result.killed_by_us then return end
+    local status = result and result.status
+    local detail
+    if err then
+        detail = "could not start: " .. tostring(err)
+    elseif status and status ~= 0 then
+        detail = "exit status " .. tostring(status)
+    end
+
+    local msg = "JitenMPV plugin exited" .. (detail and " (" .. detail .. ")" or "")
+    local died_early = mp.get_time() - spawned_at < 3
+    -- mpv reports a signal death as the negated signal number; Gatekeeper's refusal is SIGKILL.
+    if died_early and status == -9 and mp.get_property("platform") == "darwin" then
+        msg = msg .. ". macOS may have blocked it: add mpv under System Settings > Privacy & Security"
+            .. " > Developer Tools, then restart mpv"
+    else
+        msg = msg .. "; press " .. startup.start_key .. " to restart it"
+    end
+
+    mp.msg.warn(msg)
+    if died_early then mp.osd_message(msg, 8) end
+end
+
 local function initialize()
     if plugin_started then return end
 
@@ -593,6 +627,7 @@ local function initialize()
     end
 
     local exe = get_exe_path()
+    local spawned_at = mp.get_time()
     sub_visibility_before_plugin = mp.get_property("sub-visibility")
     mp.msg.info("Spawning JitenMPV: " .. exe .. " plugin " .. ipc_path)
     -- Not detached: the exit callback is the only way to learn the plugin died, and without
@@ -601,14 +636,14 @@ local function initialize()
         name = "subprocess",
         playback_only = false,
         args = { exe, "plugin", ipc_path, mpv_wayland_app_id or "" }
-    }, function()
+    }, function(success, result, err)
         plugin_started = false
         set_plugin_client(nil)
         if sub_visibility_before_plugin then
             mp.set_property("sub-visibility", sub_visibility_before_plugin)
             sub_visibility_before_plugin = nil
         end
-        mp.msg.warn("JitenMPV plugin exited; press " .. startup.start_key .. " to restart it")
+        report_plugin_exit(spawned_at, success and result or nil, err)
     end)
 end
 

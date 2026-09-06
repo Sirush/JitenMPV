@@ -111,7 +111,7 @@ Download the archive for your platform from the [releases page](https://github.c
 
 Each archive also contains `jiten-mpv.lua`. You never need it — the installer writes its own copy — but it is there if you would rather drop the script into `portable_config\scripts` yourself and keep everything under your own control.
 
-For scripted installs, `JitenMPV.App install` does the same without a window (`--mpv-config-dir <path>`, `--dry-run`, `--quiet`). On Windows the prompt returns before it finishes, since the executable has no console of its own.
+For scripted installs, `JitenMPV.App install` (`JitenMPV install` on macOS) does the same without a window (`--mpv-config-dir <path>`, `--dry-run`, `--quiet`). On Windows the prompt returns before it finishes, since the executable has no console of its own.
 
 On macOS, download with `curl` rather than a browser, and re-sign the extracted binary before running it:
 
@@ -138,7 +138,7 @@ JitenMPV checks for new releases once a day and tells you in mpv and in the sett
 
 Re-running the install command above also updates, and works when the in-app updater cannot.
 
-`JitenMPV.App uninstall` removes the mpv script; add `--all` to delete the program as well. Settings are always kept.
+`JitenMPV.App uninstall` (`JitenMPV uninstall` on macOS) removes the mpv script; add `--all` to delete the program as well. Settings are always kept.
 
 ### Building from source
 
