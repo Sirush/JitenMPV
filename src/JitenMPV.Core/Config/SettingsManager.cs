@@ -49,6 +49,15 @@ public static class SettingsManager
         {
             settings.ReviewsEnabled = false;
         }
+
+        if (!doc.RootElement.TryGetProperty("mouse_zone_height_percent", out _)
+            && doc.RootElement.TryGetProperty("mouse_zone_percent", out var legacyZone)
+            && legacyZone.ValueKind == JsonValueKind.Number
+            && legacyZone.TryGetInt32(out var untrackedPercent)
+            && untrackedPercent != 65)
+        {
+            settings.MouseZonePercent = Math.Clamp(100 - untrackedPercent, 30, 100);
+        }
     }
 
     public static string Serialize(PluginSettings settings) => JsonSerializer.Serialize(settings, JsonOptions);

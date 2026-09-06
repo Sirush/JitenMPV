@@ -105,7 +105,7 @@ local last_mouse_x, last_mouse_y = -1, -1
 local was_in_zone = false
 
 local osd_width, osd_height = 1280, 720
-local mouse_zone = 0.65
+local mouse_zone = 1.0
 
 -- Union of the plugin's word hit regions, in its 720-line overlay units. It bounds the mouse area
 -- of this script's binding section, so clicks outside it never reach here and stay alive while the
@@ -737,7 +737,7 @@ local function handle_mouse(mx, my, hover)
 
     if not plugin_started then return end
 
-    if my >= osd_height * mouse_zone then
+    if my >= osd_height * (1 - mouse_zone) then
         was_in_zone = true
         send("jiten-mouse-move", tostring(mx), tostring(my))
     elseif was_in_zone then

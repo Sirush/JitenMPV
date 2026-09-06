@@ -249,8 +249,9 @@ public sealed class PluginSettings
     [JsonPropertyName("experimental_avalonia_renderer")]
     public bool ExperimentalAvaloniaRenderer { get; set; }
 
-    [JsonPropertyName("mouse_zone_percent")]
-    public int MouseZonePercent { get; set; } = 65;
+    /// Share of the video, measured up from the bottom edge, in which pointer motion is forwarded.
+    [JsonPropertyName("mouse_zone_height_percent")]
+    public int MouseZonePercent { get; set; } = 100;
 
     /// Fades a clickable button into the top-right corner while the pointer moves, as a mouse-only
     /// route to the settings window for users who never learn the Ctrl+j binding.

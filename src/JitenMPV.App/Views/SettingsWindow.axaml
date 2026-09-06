@@ -515,6 +515,17 @@
 
               <TextBlock Text="Alignment" Foreground="#a1a1aa" FontSize="13" FontWeight="Medium" />
               <UniformGrid Rows="3" Columns="3" Width="150" Height="150">
+                <UniformGrid.Styles>
+                  <Style Selector="ToggleButton">
+                    <Setter Property="Width" Value="34" />
+                    <Setter Property="Height" Value="34" />
+                    <Setter Property="Padding" Value="0" />
+                    <Setter Property="HorizontalAlignment" Value="Center" />
+                    <Setter Property="VerticalAlignment" Value="Center" />
+                    <Setter Property="HorizontalContentAlignment" Value="Center" />
+                    <Setter Property="VerticalContentAlignment" Value="Center" />
+                  </Style>
+                </UniformGrid.Styles>
                 <ToggleButton Content="&#x2196;" Command="{Binding SetSubtitleAlignmentCommand}" CommandParameter="7" IsChecked="{Binding SubtitleAlignment, Mode=OneWay, Converter={StaticResource ParseEquals}, ConverterParameter=7}" />
                 <ToggleButton Content="&#x2191;" Command="{Binding SetSubtitleAlignmentCommand}" CommandParameter="8" IsChecked="{Binding SubtitleAlignment, Mode=OneWay, Converter={StaticResource ParseEquals}, ConverterParameter=8}" />
                 <ToggleButton Content="&#x2197;" Command="{Binding SetSubtitleAlignmentCommand}" CommandParameter="9" IsChecked="{Binding SubtitleAlignment, Mode=OneWay, Converter={StaticResource ParseEquals}, ConverterParameter=9}" />
@@ -1205,7 +1216,7 @@
                 <TextBlock Text="{Binding MouseZonePercent, StringFormat='Bottom {0}%'}"
                            VerticalAlignment="Center" Foreground="#ffffff" />
               </StackPanel>
-              <TextBlock Text="Mouse events are only tracked in this percentage of the screen from the bottom"
+              <TextBlock Text="How much of the video, measured up from the bottom, tracks the mouse. 100% is the whole frame."
                          FontSize="11" Foreground="#71717a" TextWrapping="Wrap" />
 
               <CheckBox Content="Show settings button on mouse move" IsChecked="{Binding SettingsButtonEnabled}"
