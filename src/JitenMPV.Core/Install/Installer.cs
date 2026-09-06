@@ -186,7 +186,7 @@ public static class Installer
 
         if (string.Equals(Path.GetFullPath(source), Path.GetFullPath(destination),
                 StringComparison.OrdinalIgnoreCase))
-            return "Program already in place, not copied.";
+            return "The program is already in place so it won't be copied.";
 
         // Copying one file is only valid for a single-file publish. A development build leaves its
         // assemblies beside the host, and copying the host alone installs something that cannot

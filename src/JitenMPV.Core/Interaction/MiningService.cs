@@ -237,7 +237,7 @@ public sealed class MiningService(
                                                       && media is not null && media.ShouldReportCodecFallback())
             {
                 await status.ShowAsync(ipc,
-                                       $"Your ffmpeg has no {AudioCodec.Opus.Label} encoder, audio is saved as {codec.Label}",
+                                       $"Your ffmpeg has no {AudioCodec.Opus.Label} encoder, so audio is saved as {codec.Label}",
                                        4000, ct);
             }
 

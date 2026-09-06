@@ -69,7 +69,7 @@
       <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
         <TextBlock Text="{Binding OverwriteMessage}" Foreground="#fde68a" FontSize="13"
                    TextWrapping="Wrap" VerticalAlignment="Center" />
-        <Button Grid.Column="1" Content="Keep the old one" Classes="secondary" FontSize="12"
+        <Button Grid.Column="1" Content="Keep the old screenshot" Classes="secondary" FontSize="12"
                 Command="{Binding KeepExistingImageCommand}" IsVisible="{Binding ReplacesImage}" />
         <Button Grid.Column="2" Content="Keep the old audio" Classes="secondary" FontSize="12"
                 Command="{Binding KeepExistingAudioCommand}" IsVisible="{Binding ReplacesAudio}" />
@@ -114,7 +114,7 @@
                                 SubtitleEnd="{Binding SubtitleEnd}"
                                 SelectionStart="{Binding SelectionStart, Mode=TwoWay}"
                                 SelectionEnd="{Binding SelectionEnd, Mode=TwoWay}" />
-      <TextBlock Text="Drag either edge to trim. The lighter part is the boundaries of the subtitles."
+      <TextBlock Text="Drag either edge to trim. The lighter band is where the subtitle line starts and ends."
                  FontSize="11" Foreground="#71717a" />
     </StackPanel>
 

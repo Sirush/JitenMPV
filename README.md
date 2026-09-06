@@ -22,7 +22,7 @@ Subtitles are parsed as they play, each word coloured by its state in your Jiten
 - **One-click mining** to a word list with the subtitle as example sentence
 - Media mining: screenshot, audio clip, animated clip, sentence context (requires [Jiten+ subscription](https://jiten.moe/jiten-plus))
 - **i+1 detection** and **frequency marking**
-**Blur words** depending on their status to help you rely on subtitles less
+- **Blur words** depending on their status to help you rely on subtitles less
 - Tons of settings for a customised experience
 
 ## Requirements
@@ -32,10 +32,7 @@ Subtitles are parsed as they play, each word coloured by its state in your Jiten
 - ffmpeg, for audio and clip mining. JitenMPV can download it for you.
 - Windows, Linux or macOS. Linux supports Plasma Wayland and X11/XWayland.
 
-On Plasma with window-management protocol v18 or newer, JitenMPV and mpv use native Wayland with
-accurate popup placement, including windowed, fullscreen and multi-monitor setups. JitenMPV follows
-mpv's reported GPU context and probes the compositor protocols directly; no desktop-name guess,
-permission prompt or mpv configuration is required.
+On Plasma with window-management protocol v18 or newer, JitenMPV and mpv use native Wayland with accurate popup placement in every setup. JitenMPV follows mpv's reported GPU context and probes the compositor protocols directly so no specific configuration is required.
 
 Other Wayland compositors use native Wayland with approximate placement. To make the dictionary
 popup follow the cursor through X11/XWayland, add this to `~/.config/mpv/mpv.conf`:
@@ -105,7 +102,7 @@ The install scripts download the latest release, check it against its published 
 
 ### Installing manually
 
-Every release also carries a plain archive — `jiten-mpv-win-x64.zip` / `jiten-mpv-linux-x64.tar.gz` / `jiten-mpv-osx-*.tar.gz` — holding one self-contained executable, with no runtime to install. It is the same build the setup program and the scripts fetch.
+Every release is also available as an archive, `jiten-mpv-win-x64.zip` / `jiten-mpv-linux-x64.tar.gz` / `jiten-mpv-osx-*.tar.gz`, that holds a self-contained executable, with no runtime to install. They are the same build used by setup program and the scripts.
 
 Download the archive for your platform from the [releases page](https://github.com/Sirush/JitenMPV/releases), extract it, and run the executable — `JitenMPV.App` on Windows and Linux, `JitenMPV` on macOS — with no arguments. It offers to install itself, showing the directory it will write the mpv script to.
 
@@ -152,7 +149,7 @@ Use `linux-x64`, `osx-x64` or `osx-arm64` in place of `win-x64`. This produces o
 
 Press `Ctrl+J` during playback to open the settings window, and paste your API key from the bottom of the [Jiten settings page](https://jiten.moe/settings).
 
-If ffmpeg is missing, the same screen offers a one-click download. Without it, subtitle coloring and screenshots still work, but audio and clip mining do not.
+If ffmpeg is missing, the same screen offers a one-click download. Without it, subtitle colouring and screenshots still work, but audio and clip mining do not.
 
 ## Usage
 

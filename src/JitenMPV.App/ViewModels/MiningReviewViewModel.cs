@@ -158,12 +158,12 @@ public partial class MiningReviewViewModel : ViewModelBase
 
     /// Length and smoothness are known up front; the size arrives once a sample has been measured.
     public string ClipSummary => _data.ClipPlan is { } plan
-        ? $"{plan.Duration:0.0} s, {plan.Fps} pictures per second{ClipSizeSuffix}"
+        ? $"{plan.Duration:0.0} s, {plan.Fps} frames per second{ClipSizeSuffix}"
         : "";
 
     private string ClipSizeSuffix => ClipSizeBytes switch
     {
-        null when IsMeasuringClip => ", working out the size...",
+        null when IsMeasuringClip => ", calculating size.",
         null => "",
         var bytes => $", about {Size(bytes.Value)}"
     };

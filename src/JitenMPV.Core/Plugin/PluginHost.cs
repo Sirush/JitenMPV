@@ -1034,7 +1034,7 @@ public sealed class PluginHost(
         if (!string.IsNullOrEmpty(settings.ApiKey)) return false;
 
         await ipc.ShowTextAsync(
-            "jiten-mpv: no API key set, so subtitles cannot be looked up yet. "
+            "JitenMPV: no API key set, so subtitles cannot be looked up yet. "
             + "Press Ctrl+J to paste your key from jiten.moe.", NoticeDurationMs, ct);
         return true;
     }

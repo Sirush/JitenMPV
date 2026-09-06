@@ -54,7 +54,7 @@ public sealed class WordActionService(
             PopupAction.NeverForget =>
                 (VocabularyStateActions.NeverForgetAdd, KnownState.Mastered, "Mastered"),
             PopupAction.Blacklist when currentState == KnownState.Blacklisted =>
-                (VocabularyStateActions.BlacklistRemove, KnownState.New, "Removed Blacklist"),
+                (VocabularyStateActions.BlacklistRemove, KnownState.New, "Blacklist removed"),
             PopupAction.Blacklist =>
                 (VocabularyStateActions.BlacklistAdd, KnownState.Blacklisted, "Blacklisted"),
             PopupAction.Suspend when currentState == KnownState.Suspended =>

@@ -486,7 +486,7 @@
                              TextWrapping="Wrap" IsVisible="{Binding HasFontWarning}" />
                   <TextBlock Text="世界、こんにちは。" FontSize="20" Foreground="#fafafa"
                              FontFamily="{Binding PreviewFont}" />
-                  <TextBlock Text="Preview of the installed font. Check the kanji look Japanese and not Chinese."
+                  <TextBlock Text="Preview of the installed font. Check that the kanji look Japanese rather than Chinese.."
                              FontSize="11" Foreground="#71717a" TextWrapping="Wrap" />
                 </StackPanel>
 
@@ -767,7 +767,7 @@
                     <TextBlock Text="Add a screenshot and audio when mining" FontSize="15" FontWeight="Medium"
                                VerticalAlignment="Center" Foreground="#ffffff" />
                   </StackPanel>
-                  <TextBlock Text="Saves a screenshot and the spoken line onto the card, will display during SRS study"
+                  <TextBlock Text="Saves a screenshot and the audio of the line to the card. Both show during SRS study."
                              FontSize="12" Foreground="#71717a" TextWrapping="Wrap" />
 
                   <StackPanel IsVisible="{Binding MediaCaptureEnabled}" Margin="16,4,0,0" Spacing="10">
@@ -848,7 +848,7 @@
                                    Value="{Binding MediaImageQuality}"
                                    Minimum="40" Maximum="100" Increment="1" />
                   </Grid>
-                  <TextBlock Text="Screenshots are resized to 1600px (longest size) and Webp 82 quality by the Jiten API."
+                  <TextBlock Text="Screenshots are resized to 1600px (longest size) and WebP 82 quality by the server."
                              FontSize="11" Foreground="#71717a" TextWrapping="Wrap" />
 
                   <Border Classes="divider" />
@@ -901,7 +901,7 @@
                     <TextBlock Grid.Row="3" Text="Size limit (MB)" Classes="field-label" />
                     <NumericUpDown Grid.Row="3" Grid.Column="1" Classes="field" Value="{Binding MediaAudioMaxMb}"
                                    Minimum="0.2" Maximum="5" Increment="0.5" FormatString="0.0" />
-                    <TextBlock Grid.Row="4" Text="Room to trim (s)" Classes="field-label" />
+                    <TextBlock Grid.Row="4" Text="Extra audio kept around the line (s)" Classes="field-label" />
                     <NumericUpDown Grid.Row="4" Grid.Column="1" Classes="field"
                                    Value="{Binding MediaAudioWindowMarginSeconds}"
                                    Minimum="1" Maximum="20" Increment="1" FormatString="0.0" />
@@ -946,7 +946,7 @@
                 <NumericUpDown Value="{Binding PopupHoverDelayMs}" Minimum="10" Maximum="3000" Increment="10" />
               </StackPanel>
               <StackPanel Spacing="4">
-                <TextBlock Text="Switch delay for a word on another line (ms)"
+                <TextBlock Text="Delay before the popup moves to a word on another line (ms)"
                            Foreground="#a1a1aa" FontSize="13" FontWeight="Medium" TextWrapping="Wrap" />
                 <NumericUpDown Value="{Binding PopupSwitchDelayMs}" Minimum="0" Maximum="2000" Increment="50" />
               </StackPanel>
@@ -1072,7 +1072,7 @@
               <StackPanel IsVisible="{Binding RotateStatesEnabled}" Margin="24,0,0,0" Spacing="4">
                 <CheckBox Content="Show rotate actions" IsChecked="{Binding PopupShowRotateActions}" />
                 <CheckBox Content="Rotate cycle" IsChecked="{Binding RotateCycle}" />
-                <TextBlock Text="Stays among the states instead of passing through a cleared step"
+                <TextBlock Text="Loops between the states instead of returning to new"
                            FontSize="11" Foreground="#71717a" TextWrapping="Wrap" Margin="28,0,0,0" />
                 <TextBlock Text="States in the cycle" Foreground="#a1a1aa" FontSize="13"
                            FontWeight="Medium" Margin="0,4,0,0" />
