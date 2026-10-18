@@ -100,6 +100,7 @@
           <ListBoxItem Content="Media" />
           <ListBoxItem Content="Popup" />
           <ListBoxItem Content="Keybinds" />
+          <ListBoxItem Content="Jimaku" />
           <ListBoxItem Content="Advanced" />
         </ListBox>
       </Border>
@@ -1175,10 +1176,30 @@
                 </Grid>
               </StackPanel>
             </Border>
+
+            <Border Background="#18181b" BorderBrush="#3f3f46" BorderThickness="1"
+                    CornerRadius="8" Padding="16">
+              <StackPanel Spacing="12">
+                <TextBlock Text="JIMAKU SUBTITLES" Classes="section-header" />
+                <Grid ColumnDefinitions="120,*" RowDefinitions="Auto,Auto,Auto" RowSpacing="8">
+                  <TextBlock Text="Search" VerticalAlignment="Center" Foreground="#a1a1aa" />
+                  <TextBox Grid.Column="1" Text="{Binding KeybindJimakuSearch}"
+                           PlaceholderText="unbound" MaxWidth="200" HorizontalAlignment="Left" />
+
+                  <TextBlock Grid.Row="1" Text="Next subtitle" VerticalAlignment="Center" Foreground="#a1a1aa" />
+                  <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding KeybindJimakuNext}"
+                           PlaceholderText="unbound" MaxWidth="200" HorizontalAlignment="Left" />
+
+                  <TextBlock Grid.Row="2" Text="Previous subtitle" VerticalAlignment="Center" Foreground="#a1a1aa" />
+                  <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding KeybindJimakuPrev}"
+                           PlaceholderText="unbound" MaxWidth="200" HorizontalAlignment="Left" />
+                </Grid>
+              </StackPanel>
+            </Border>
           </StackPanel>
 
           <!-- ═══════ ADVANCED TAB ═══════ -->
-          <StackPanel IsVisible="{Binding SelectedTabIndex, Converter={StaticResource ParseEquals}, ConverterParameter=6}"
+          <StackPanel IsVisible="{Binding SelectedTabIndex, Converter={StaticResource ParseEquals}, ConverterParameter=7}"
                       Spacing="16">
             <TextBlock Text="Advanced" FontSize="20" FontWeight="Bold" Foreground="#ffffff" />
 
@@ -1259,6 +1280,73 @@
                 <Button Grid.Column="1" Content="Open folder" Classes="secondary"
                         Command="{Binding OpenConfigFolderCommand}" />
               </Grid>
+            </StackPanel>
+          </StackPanel>
+
+          <!-- ═══════ JIMAKU TAB ═══════ -->
+          <StackPanel IsVisible="{Binding SelectedTabIndex, Converter={StaticResource ParseEquals}, ConverterParameter=6}"
+                      Spacing="16">
+            <TextBlock Text="Jimaku" FontSize="20" FontWeight="Bold" Foreground="#ffffff" />
+            <TextBlock Text="Download Japanese subtitles from jimaku.cc for files that have none."
+                       FontSize="12" Foreground="#71717a" TextWrapping="Wrap" />
+
+            <CheckBox Content="Enable Jimaku subtitles" IsChecked="{Binding JimakuEnabled}" />
+
+            <StackPanel Spacing="16" IsEnabled="{Binding JimakuEnabled}">
+              <StackPanel Spacing="4">
+                <TextBlock Text="Jimaku API Key" Foreground="#a1a1aa" FontSize="13" FontWeight="Medium" />
+                <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="4">
+                  <TextBox Text="{Binding JimakuApiKey}"
+                           RevealPassword="{Binding IsJimakuApiKeyVisible}"
+                           PasswordChar="*"
+                           PlaceholderText="Enter your jimaku.cc API key" />
+                  <Button Grid.Column="1" Content="Show"
+                          Classes="secondary"
+                          Command="{Binding ToggleJimakuApiKeyVisibilityCommand}" />
+                  <Button Grid.Column="2" Content="Test"
+                          Classes="secondary"
+                          Command="{Binding TestJimakuApiKeyCommand}"
+                          IsEnabled="{Binding !IsTestingJimakuApiKey}" />
+                </Grid>
+                <TextBlock Text="{Binding JimakuApiKeyStatus}" FontSize="12"
+                           Foreground="{Binding JimakuApiKeyStatusColor, Converter={StaticResource StringToBrush}}"
+                           IsVisible="{Binding JimakuApiKeyStatus, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                  <TextBlock Text="Get your API key from your jimaku.cc account page"
+                             FontSize="11" Foreground="#71717a" VerticalAlignment="Center" />
+                  <Button Content="Open jimaku.cc" Classes="secondary" FontSize="11" Padding="8,2"
+                          Command="{Binding OpenJimakuLoginCommand}" />
+                </StackPanel>
+              </StackPanel>
+
+              <StackPanel Spacing="8">
+                <CheckBox Content="Fetch automatically" IsChecked="{Binding JimakuAutoFetch}" />
+                <TextBlock Text="Load subtitles when a file opens without Japanese ones."
+                           FontSize="11" Foreground="#71717a" TextWrapping="Wrap" />
+
+                <CheckBox Content="Remove Chinese lines" IsChecked="{Binding JimakuStripChinese}" />
+                <TextBlock Text="Keep only the Japanese lines of bilingual Japanese/Chinese subtitles."
+                           FontSize="11" Foreground="#71717a" TextWrapping="Wrap" />
+              </StackPanel>
+
+              <StackPanel Spacing="8">
+                <TextBlock Text="KEYS" Classes="section-header" />
+                <Grid ColumnDefinitions="120,*" RowDefinitions="Auto,Auto,Auto" RowSpacing="8">
+                  <TextBlock Text="Search" VerticalAlignment="Center" Foreground="#a1a1aa" />
+                  <TextBox Grid.Column="1" Text="{Binding KeybindJimakuSearch}"
+                           PlaceholderText="unbound" MaxWidth="200" HorizontalAlignment="Left" />
+
+                  <TextBlock Grid.Row="1" Text="Next subtitle" VerticalAlignment="Center" Foreground="#a1a1aa" />
+                  <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding KeybindJimakuNext}"
+                           PlaceholderText="unbound" MaxWidth="200" HorizontalAlignment="Left" />
+
+                  <TextBlock Grid.Row="2" Text="Previous subtitle" VerticalAlignment="Center" Foreground="#a1a1aa" />
+                  <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding KeybindJimakuPrev}"
+                           PlaceholderText="unbound" MaxWidth="200" HorizontalAlignment="Left" />
+                </Grid>
+                <TextBlock Text="Search asks for a title. Next and previous switch between subtitles, for when the timing is off."
+                           FontSize="11" Foreground="#71717a" TextWrapping="Wrap" />
+              </StackPanel>
             </StackPanel>
           </StackPanel>
 

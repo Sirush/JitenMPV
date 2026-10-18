@@ -16,6 +16,7 @@ using JitenMPV.Core.Api.Models;
 using JitenMPV.Core.Config;
 using JitenMPV.Core.Fonts;
 using JitenMPV.Core.Install;
+using JitenMPV.Core.Jimaku;
 using JitenMPV.Core.Media;
 using JitenMPV.Core.Pitch;
 using JitenMPV.Core.Plus;
@@ -38,6 +39,8 @@ public partial class SettingsViewModel : ViewModelBase
 {
     /// Sidebar position of the Media tab; ResetSection and the tab visibility bindings share it.
     private const int MediaTabIndex = 3;
+    private const int JimakuTabIndex = 6;
+    private const int AdvancedTabIndex = 7;
 
     [ObservableProperty] private string _apiKey = "";
     [ObservableProperty] private string _apiBaseUrl = "";
@@ -703,6 +706,7 @@ public partial class SettingsViewModel : ViewModelBase
         }
 
         ApplyMediaSettings(s);
+        ApplyJimakuSettings(s);
         ApplyJitenPlusSnapshot(JitenPlusCache.Load());
 
         _previousTheme = s.Theme == "Custom" ? "Default" : s.Theme;
@@ -912,6 +916,13 @@ public partial class SettingsViewModel : ViewModelBase
                 ? CustomStateStyles.ToDictionary(s => s.State.ToString(), s => s.ToCustomStateStyle())
                 : null,
             PopupKeybinds = BuildKeybindsDictionary(),
+            JimakuEnabled = JimakuEnabled,
+            JimakuAutoFetch = JimakuAutoFetch,
+            JimakuApiKey = string.IsNullOrWhiteSpace(JimakuApiKey) ? null : JimakuApiKey.Trim(),
+            JimakuStripChinese = JimakuStripChinese,
+            KeybindJimakuSearch = KeybindJimakuSearch.Trim(),
+            KeybindJimakuNext = KeybindJimakuNext.Trim(),
+            KeybindJimakuPrev = KeybindJimakuPrev.Trim(),
         };
     }
 
@@ -1372,6 +1383,98 @@ public partial class SettingsViewModel : ViewModelBase
             : "Theme imported";
     }
 
+    [ObservableProperty] private bool _jimakuEnabled;
+    [ObservableProperty] private bool _jimakuAutoFetch;
+    [ObservableProperty] private string _jimakuApiKey = "";
+    [ObservableProperty] private bool _jimakuStripChinese;
+    [ObservableProperty] private string _keybindJimakuSearch = "";
+    [ObservableProperty] private string _keybindJimakuNext = "";
+    [ObservableProperty] private string _keybindJimakuPrev = "";
+    [ObservableProperty] private bool _isJimakuApiKeyVisible;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(JimakuApiKeyStatusColor))]
+    private string _jimakuApiKeyStatus = "";
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(JimakuApiKeyStatusColor))]
+    private bool _isJimakuApiKeyValid;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(JimakuApiKeyStatusColor))]
+    private bool _isTestingJimakuApiKey;
+
+    public string JimakuApiKeyStatusColor => IsTestingJimakuApiKey ? "#a1a1aa"
+        : IsJimakuApiKeyValid ? "#86efac"
+        : "#fca5a5";
+
+    private void ApplyJimakuSettings(PluginSettings s)
+    {
+        JimakuEnabled = s.JimakuEnabled;
+        JimakuAutoFetch = s.JimakuAutoFetch;
+        JimakuApiKey = s.JimakuApiKey ?? "";
+        JimakuStripChinese = s.JimakuStripChinese;
+        KeybindJimakuSearch = s.KeybindJimakuSearch;
+        KeybindJimakuNext = s.KeybindJimakuNext;
+        KeybindJimakuPrev = s.KeybindJimakuPrev;
+    }
+
+    [RelayCommand]
+    private void ToggleJimakuApiKeyVisibility() => IsJimakuApiKeyVisible = !IsJimakuApiKeyVisible;
+
+    [RelayCommand]
+    private async Task TestJimakuApiKeyAsync()
+    {
+        if (IsTestingJimakuApiKey) return;
+
+        var key = JimakuApiKey.Trim();
+        if (string.IsNullOrEmpty(key))
+        {
+            IsJimakuApiKeyValid = false;
+            JimakuApiKeyStatus = "Enter an API key first";
+            return;
+        }
+
+        IsTestingJimakuApiKey = true;
+        IsJimakuApiKeyValid = false;
+        JimakuApiKeyStatus = "Testing...";
+        try
+        {
+            var client = new JimakuClient(key, NullLogger<SettingsViewModel>.Instance);
+            await client.CheckKeyAsync(CancellationToken.None);
+            IsJimakuApiKeyValid = true;
+            JimakuApiKeyStatus = "This key works";
+        }
+        catch (JimakuException ex)
+        {
+            JimakuApiKeyStatus = ex.Kind == JimakuErrorKind.Unauthorized
+                ? "This key was refused"
+                : $"Could not check: {ex.Message}";
+        }
+        finally
+        {
+            IsTestingJimakuApiKey = false;
+        }
+    }
+
+    partial void OnJimakuApiKeyChanged(string value)
+    {
+        JimakuApiKeyStatus = "";
+        IsJimakuApiKeyValid = false;
+    }
+
+    [RelayCommand]
+    private void OpenJimakuLogin()
+    {
+        try
+        {
+            Process.Start(new ProcessStartInfo("https://jimaku.cc/login") { UseShellExecute = true });
+        }
+        catch (Exception ex) when (ex is IOException or System.ComponentModel.Win32Exception)
+        {
+        }
+    }
+
     [RelayCommand]
     private void ResetSection()
     {
@@ -1473,8 +1576,15 @@ public partial class SettingsViewModel : ViewModelBase
                 KeybindPrevSub = defaults.KeybindPrevSub;
                 KeybindNextSub = defaults.KeybindNextSub;
                 KeybindLoopSub = defaults.KeybindLoopSub;
+                KeybindJimakuSearch = defaults.KeybindJimakuSearch;
+                KeybindJimakuNext = defaults.KeybindJimakuNext;
+                KeybindJimakuPrev = defaults.KeybindJimakuPrev;
                 break;
-            case 6:
+            case JimakuTabIndex:
+                defaults.JimakuApiKey = JimakuApiKey;
+                ApplyJimakuSettings(defaults);
+                break;
+            case AdvancedTabIndex:
                 CacheSize = defaults.CacheSize;
                 PluginAutostart = defaults.PluginAutostart;
                 PluginStartKey = defaults.PluginStartKey;

@@ -186,14 +186,21 @@ local function loop_toggle()
 end
 
 local nav_step
+local jimaku_action
 
 local nav_actions = {
     prev_sub = function() nav_step(-1) end,
     next_sub = function() nav_step(1) end,
-    loop_sub = loop_toggle
+    loop_sub = loop_toggle,
+    jimaku_search = function() jimaku_action("search") end,
+    jimaku_next = function() jimaku_action("next") end,
+    jimaku_prev = function() jimaku_action("prev") end
 }
 
-local nav_keys = { prev_sub = "Ctrl+LEFT", next_sub = "Ctrl+RIGHT", loop_sub = "Ctrl+l" }
+local nav_keys = {
+    prev_sub = "Ctrl+LEFT", next_sub = "Ctrl+RIGHT", loop_sub = "Ctrl+l", jimaku_search = "", jimaku_next = "",
+    jimaku_prev = ""
+}
 
 -- Held so the nav keys can be claimed only while a plugin is connected: bound at script load they
 -- would take Ctrl+LEFT and friends away from an mpv the user never asked JitenMPV to touch.
@@ -254,6 +261,10 @@ function nav_step(delta)
     else
         mp.commandv("sub-seek", tostring(delta))
     end
+end
+
+function jimaku_action(action)
+    if bar.client then mp.commandv("script-message-to", bar.client, "jiten-jimaku", action) end
 end
 
 -- Every button requires a connected plugin, identified by the IPC client name it reports. Subtitle
@@ -800,6 +811,9 @@ apply_mouse_area()
 
 mp.register_script_message("jiten-passthrough-click", function() run_fallback("MBTN_LEFT") end)
 mp.register_script_message("jiten-passthrough-dbl", function() run_fallback("MBTN_LEFT_DBL") end)
+mp.register_script_message("jiten-log", function(level, text)
+    (mp.msg[level] or mp.msg.info)(text)
+end)
 
 mp.observe_property("osd-width", "number", function(_, val)
     if val and val > 0 and val ~= osd_width then
@@ -882,6 +896,31 @@ mp.register_script_message("jiten-set-buttons", function(settings_value, nav_val
     bar.nav_enabled = nav_value == "1"
     bar_refresh()
     apply_mouse_area()
+end)
+
+-- mp.input arrived in mpv 0.38; older builds get the command to type instead, and a forced search
+-- runs on the detected title as is.
+mp.register_script_message("jiten-jimaku-prompt", function(default_text, mode)
+    local ok, input = pcall(require, "mp.input")
+    if not ok or not input or not input.get then
+        if mode == "search" and default_text and default_text ~= "" and bar.client then
+            mp.commandv("script-message-to", bar.client, "jiten-jimaku-query", default_text)
+            return
+        end
+        mp.osd_message("Jimaku: nothing found. Search by title with: script-message jiten-jimaku-query <title>", 8)
+        return
+    end
+    input.get({
+        prompt = "Jimaku search:",
+        default_text = default_text or "",
+        submit = function(text)
+            input.terminate()
+            text = text and text:match("^%s*(.-)%s*$")
+            if text and text ~= "" and bar.client then
+                mp.commandv("script-message-to", bar.client, "jiten-jimaku-query", text)
+            end
+        end
+    })
 end)
 
 -- Keybind system

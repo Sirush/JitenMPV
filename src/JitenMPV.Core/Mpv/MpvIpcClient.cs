@@ -143,6 +143,10 @@ public sealed class MpvIpcClient(string pipePath, ILogger logger) : IAsyncDispos
             ["data"] = ""
         }, ct);
 
+    /// <returns>mpv's error string when the file could not be added, null on success.</returns>
+    public async Task<string?> SubAddAsync(string path, string flags, string title, string lang, CancellationToken ct)
+        => (await SendCommandWithReplyAsync(["sub-add", path, flags, title, lang], ct)).Error;
+
     public Task SeekAbsoluteAsync(double seconds, CancellationToken ct)
         => SendCommandAsync(["seek", seconds, "absolute+exact"], ct);
 

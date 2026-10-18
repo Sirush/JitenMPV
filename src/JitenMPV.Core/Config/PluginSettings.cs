@@ -407,6 +407,27 @@ public sealed class PluginSettings
     [JsonPropertyName("plugin_start_key")]
     public string PluginStartKey { get; set; } = "F10";
 
+    [JsonPropertyName("jimaku_enabled")]
+    public bool JimakuEnabled { get; set; } = true;
+
+    [JsonPropertyName("jimaku_auto_fetch")]
+    public bool JimakuAutoFetch { get; set; } = true;
+
+    [JsonPropertyName("jimaku_api_key")]
+    public string? JimakuApiKey { get; set; }
+
+    [JsonPropertyName("jimaku_strip_chinese")]
+    public bool JimakuStripChinese { get; set; } = true;
+
+    [JsonPropertyName("keybind_jimaku_search")]
+    public string KeybindJimakuSearch { get; set; } = "Ctrl+K";
+
+    [JsonPropertyName("keybind_jimaku_next")]
+    public string KeybindJimakuNext { get; set; } = "k";
+
+    [JsonPropertyName("keybind_jimaku_prev")]
+    public string KeybindJimakuPrev { get; set; } = "Alt+k";
+
     [JsonPropertyName("auto_save_settings")]
     public bool AutoSaveSettings { get; set; }
 

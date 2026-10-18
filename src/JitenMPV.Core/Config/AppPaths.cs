@@ -14,6 +14,8 @@ public static class AppPaths
 
     public static string ConfigDir { get; } = ResolveConfigDir();
 
+    public static string CacheDir { get; } = ResolveCacheDir();
+
     public static string ManagedFfmpegDir => Path.Combine(AppDir, "ffmpeg");
 
     public static string ManagedFfmpegExe => Path.Combine(ManagedFfmpegDir, ExecutableName("ffmpeg"));
@@ -30,6 +32,13 @@ public static class AppPaths
         => RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
             ? Path.Combine(RoamingAppData(), FolderName)
             : Path.Combine(XdgOrDefault("XDG_CONFIG_HOME", ".config"), FolderName);
+
+    private static string ResolveCacheDir()
+        => RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
+            ? Path.Combine(Environment.GetFolderPath(
+                Environment.SpecialFolder.LocalApplicationData, Environment.SpecialFolderOption.DoNotVerify),
+                FolderName, "cache")
+            : Path.Combine(XdgOrDefault("XDG_CACHE_HOME", ".cache"), FolderName);
 
     /// Resolved from the environment rather than `SpecialFolder.ApplicationData`, which returns an
     /// empty string on Unix when the directory does not exist yet and would silently yield a path

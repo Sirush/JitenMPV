@@ -17,7 +17,8 @@ public sealed class StatusOverlay(PluginSettings settings) : IDisposable
         if (!_settings.StatusOverlayEnabled) return;
         TaskHelper.CancelAndDispose(ref _hideCts);
 
-        var ass = $@"{{\an9\fs{(int)(_settings.FontSize * 0.6)}\fn{_settings.FontFamily}\bord2\1c&HFFFFFF&\3c&H000000&}}{message}";
+        // The empty first line keeps clear of the settings button the Lua bar draws in this corner.
+        var ass = $@"{{\an9\fs{(int)(_settings.FontSize * 0.6)}\fn{_settings.FontFamily}\bord2\1c&HFFFFFF&\3c&H000000&}}\h\N{message}";
         await ipc.ShowOverlayAsync(StatusLayerId, ass, ct);
 
         _hideCts = new CancellationTokenSource();
@@ -25,6 +26,10 @@ public sealed class StatusOverlay(PluginSettings settings) : IDisposable
 
         _ = HideAfterDelayAsync(ipc, durationMs, cts);
     }
+
+    /// Routine progress goes to mpv's log, readable in its console, instead of over the video.
+    public Task LogAsync(MpvIpcClient ipc, string message, CancellationToken ct)
+        => ipc.SendScriptMessageAsync("jiten_mpv", "jiten-log", "info", message, ct);
 
     private async Task HideAfterDelayAsync(MpvIpcClient ipc, int durationMs, CancellationTokenSource cts)
     {

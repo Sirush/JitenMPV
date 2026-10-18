@@ -4,6 +4,7 @@ using JitenMPV.Core.Api.Models;
 using JitenMPV.Core.Cache;
 using JitenMPV.Core.Config;
 using JitenMPV.Core.Interaction;
+using JitenMPV.Core.Jimaku;
 using JitenMPV.Core.Media;
 using JitenMPV.Core.Mpv;
 using JitenMPV.Core.Plus;
@@ -62,6 +63,7 @@ public sealed class PluginHost(
     private volatile RotationService? _rotationService;
     private volatile JitenPlusService? _plusService;
     private volatile MediaCaptureCoordinator? _mediaCapture;
+    private volatile JimakuService? _jimaku;
     private volatile bool _wasPausedBeforeSettings;
     private volatile bool _subtitlesVisible = true;
     private readonly SemaphoreSlim _subtitleVisibilityLock = new(1, 1);
@@ -151,6 +153,7 @@ public sealed class PluginHost(
         _miningService?.UpdateSettings(newSettings);
         _rotationService?.UpdateSettings(newSettings);
         _mediaCapture?.UpdateSettings(newSettings);
+        _jimaku?.UpdateSettings(newSettings);
 
         bool rendererSwitched =
             previous?.ExperimentalAvaloniaRenderer != newSettings.ExperimentalAvaloniaRenderer;
@@ -576,6 +579,9 @@ public sealed class PluginHost(
             var keybindManager = new KeybindManager(ipcClient, logger);
             _keybindManager = keybindManager;
 
+            using var jimaku = new JimakuService(ipcClient, statusOverlay, settings, logger);
+            _jimaku = jimaku;
+
             popupManager.VisibilityChanged += visible =>
             {
                 _ = RunSafe(async () =>
@@ -703,6 +709,8 @@ public sealed class PluginHost(
             {
                 if (name is "sid" or "path")
                     ReloadSubtitleSource(ipcClient, preParser, timeline, ct);
+                if (name == "path")
+                    jimaku.OnFileChanged(ct);
             };
 
             ipcClient.ScriptMessageReceived += (name, args) =>
@@ -720,6 +728,14 @@ public sealed class PluginHost(
                 {
                     if (int.TryParse(args[0], out var delta))
                         _ = RunSafe(() => NavigateSubtitleAsync(ipcClient, timeline, delta, ct));
+                }
+                else if (name == JimakuService.ActionMessage && args.Length >= 1)
+                {
+                    jimaku.OnAction(args[0], ct);
+                }
+                else if (name == JimakuService.QueryMessage)
+                {
+                    jimaku.OnQuery(string.Join(' ', args), ct);
                 }
                 else if (name == "jiten-keybind-action" && args.Length >= 1)
                 {
@@ -956,6 +972,12 @@ public sealed class PluginHost(
             "next_sub", settings.KeybindNextSub, ct);
         await ipc.SendScriptMessageAsync(LuaScriptName, "jiten-set-nav-key",
             "loop_sub", settings.KeybindLoopSub, ct);
+        await ipc.SendScriptMessageAsync(LuaScriptName, "jiten-set-nav-key",
+            "jimaku_search", settings.JimakuEnabled ? settings.KeybindJimakuSearch : "", ct);
+        await ipc.SendScriptMessageAsync(LuaScriptName, "jiten-set-nav-key",
+            "jimaku_next", settings.JimakuEnabled ? settings.KeybindJimakuNext : "", ct);
+        await ipc.SendScriptMessageAsync(LuaScriptName, "jiten-set-nav-key",
+            "jimaku_prev", settings.JimakuEnabled ? settings.KeybindJimakuPrev : "", ct);
     }
 
     private async Task ToggleSubtitlesAsync(MpvIpcClient ipc, CancellationToken ct)
