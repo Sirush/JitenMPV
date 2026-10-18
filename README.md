@@ -23,6 +23,7 @@ Subtitles are parsed as they play, each word coloured by its state in your Jiten
 - Media mining: screenshot, audio clip, animated clip, sentence context (requires [Jiten+ subscription](https://jiten.moe/jiten-plus))
 - **i+1 detection** and **frequency marking**
 - **Blur words** depending on their status to help you rely on subtitles less
+- **Episode tracking**: episodes you finish are marked watched on Jiten
 - Tons of settings for a customised experience
 
 ## Requirements
@@ -157,8 +158,15 @@ If ffmpeg is missing, the same screen offers a one-click download. Without it, s
 - `F10` starts JitenMPV, or restarts it if it stopped
 - mpv's subtitle visibility key (`v` by default) hides or shows JitenMPV's coloured subtitles
 - Hover a word for its dictionary entry, click to interact
+- `Ctrl+E` picks the Jiten show and episode for the current file
 
 JitenMPV starts automatically when a file is opened. Turn that off under Settings > Advanced if you would rather start it with `F10` only.
+
+### Episode tracking
+
+When a file opens, JitenMPV works out the show and episode from its name and folder and finds the matching Jiten deck. Once you have actually played 85% of the episode (skipping ahead does not count), that episode is marked watched on Jiten. Rewatching an episode already marked does nothing.
+
+Only confident matches are tracked. When a show is ambiguous or not found, JitenMPV says so on screen; press `Ctrl+E` to choose the deck yourself, set which episode the file is, or stop tracking that folder. Choices are remembered per folder. The threshold and the other options live under Settings > Episode tracking.
 
 ## Development
 

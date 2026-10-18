@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text.Json;
 using JitenMPV.Core.Api;
 using JitenMPV.Core.Api.Models;
@@ -5,12 +6,14 @@ using JitenMPV.Core.Cache;
 using JitenMPV.Core.Config;
 using JitenMPV.Core.Interaction;
 using JitenMPV.Core.Media;
+using JitenMPV.Core.MediaInfo;
 using JitenMPV.Core.Mpv;
 using JitenMPV.Core.Plus;
 using JitenMPV.Core.Rendering;
 using JitenMPV.Core.Pitch;
 using JitenMPV.Core.Subtitles;
 using JitenMPV.Core.Theming;
+using JitenMPV.Core.Tracking;
 using JitenMPV.Core.Update;
 using Microsoft.Extensions.Logging;
 
@@ -23,7 +26,8 @@ public sealed class PluginHost(
     IMiningReviewPresenter? reviewPresenter = null,
     IMediaOverwritePresenter? overwritePresenter = null,
     string? mpvAppId = null,
-    ISubtitleOverlaySurface? overlaySurface = null)
+    ISubtitleOverlaySurface? overlaySurface = null,
+    IEpisodePickerPresenter? episodePickerPresenter = null)
 {
     internal const int SubtitleOverlayId = 1;
     internal const int UnderlineOverlayId = 2;
@@ -31,6 +35,7 @@ public sealed class PluginHost(
     internal const string OpenSettingsMessage = "jiten-open-settings";
     internal const string ToggleSubtitlesMessage = "jiten-toggle-subtitles";
     internal const string NavigateSubtitleMessage = "jiten-nav-sub";
+    internal const string EpisodePickerMessage = "jiten-episode-picker";
     private const string LuaScriptName = "jiten_mpv";
 
     /// mpv reports the new track before it has finished loading it, and a file change fires several
@@ -62,6 +67,7 @@ public sealed class PluginHost(
     private volatile RotationService? _rotationService;
     private volatile JitenPlusService? _plusService;
     private volatile MediaCaptureCoordinator? _mediaCapture;
+    private volatile EpisodeTracker? _episodeTracker;
     private volatile bool _wasPausedBeforeSettings;
     private volatile bool _subtitlesVisible = true;
     private readonly SemaphoreSlim _subtitleVisibilityLock = new(1, 1);
@@ -151,6 +157,7 @@ public sealed class PluginHost(
         _miningService?.UpdateSettings(newSettings);
         _rotationService?.UpdateSettings(newSettings);
         _mediaCapture?.UpdateSettings(newSettings);
+        _episodeTracker?.UpdateSettings(newSettings);
 
         bool rendererSwitched =
             previous?.ExperimentalAvaloniaRenderer != newSettings.ExperimentalAvaloniaRenderer;
@@ -576,6 +583,18 @@ public sealed class PluginHost(
             var keybindManager = new KeybindManager(ipcClient, logger);
             _keybindManager = keybindManager;
 
+            var mediaMap = new MediaMap(MediaMap.DefaultPath);
+            var episodeTracker = new EpisodeTracker(
+                apiClient, new DeckResolver(apiClient, mediaMap), mediaMap,
+                new PendingMarks(PendingMarks.DefaultPath), settings, logger,
+                (message, onScreen, token) => onScreen
+                    ? statusOverlay.ShowAsync(ipcClient, message, NoticeDurationMs, token)
+                    : statusOverlay.LogAsync(ipcClient, message, token),
+                episodePickerPresenter);
+            _episodeTracker = episodeTracker;
+            ipcClient.FileLoaded += () => _ = RunSafe(() => LoadEpisodeAsync(ipcClient, episodeTracker, ct));
+            ipcClient.FileEnded += reason => episodeTracker.OnEndFile(reason == "eof");
+
             popupManager.VisibilityChanged += visible =>
             {
                 _ = RunSafe(async () =>
@@ -716,6 +735,10 @@ public sealed class PluginHost(
                 {
                     _ = RunSafe(() => ToggleSubtitlesAsync(ipcClient, ct));
                 }
+                else if (name == EpisodePickerMessage)
+                {
+                    _ = RunSafe(() => episodeTracker.OpenPickerAsync(ct));
+                }
                 else if (name == NavigateSubtitleMessage && args.Length >= 1)
                 {
                     if (int.TryParse(args[0], out var delta))
@@ -803,6 +826,10 @@ public sealed class PluginHost(
 
             ReloadSubtitleSource(ipcClient, preParser, timeline, ct);
 
+            _ = RunSafe(() => episodeTracker.RetryPendingAsync(ct));
+            _ = RunSafe(() => LoadEpisodeAsync(ipcClient, episodeTracker, ct));
+            _ = RunSafe(() => TrackPlaybackAsync(ipcClient, episodeTracker, ct));
+
             _ = RunSafe(() => ShowStartupNoticesAsync(ipcClient, settings, ct));
 
             logger.LogInformation("JitenMPV plugin running.");
@@ -824,6 +851,8 @@ public sealed class PluginHost(
         finally
         {
             _shuttingDown = true;
+            if (_episodeTracker is { } tracker)
+                await tracker.FlushAsync(TimeSpan.FromSeconds(3));
             try
             {
                 using var cleanupCts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
@@ -956,6 +985,27 @@ public sealed class PluginHost(
             "next_sub", settings.KeybindNextSub, ct);
         await ipc.SendScriptMessageAsync(LuaScriptName, "jiten-set-nav-key",
             "loop_sub", settings.KeybindLoopSub, ct);
+        await ipc.SendScriptMessageAsync(LuaScriptName, "jiten-set-nav-key",
+            "episode_picker", settings.KeybindEpisodePicker, ct);
+    }
+
+    private async Task LoadEpisodeAsync(MpvIpcClient ipc, EpisodeTracker tracker, CancellationToken ct)
+        => await tracker.OnFileLoadedAsync(await MediaIdentityReader.ResolveAsync(ipc, logger, ct), ct);
+
+    /// Polled rather than observed: time-pos changes every frame, and the watch-time count only
+    /// needs a sample a second.
+    private static async Task TrackPlaybackAsync(MpvIpcClient ipc, EpisodeTracker tracker, CancellationToken ct)
+    {
+        var clock = Stopwatch.StartNew();
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(1));
+        while (await timer.WaitForNextTickAsync(ct))
+        {
+            if (!tracker.IsTracking) continue;
+            if (await ipc.GetPropertyAsync<double?>("time-pos", ct) is not { } position) continue;
+            var duration = await ipc.GetPropertyAsync<double?>("duration", ct);
+            var speed = await ipc.GetPropertyAsync<double?>("speed", ct) ?? 1;
+            tracker.OnPlayback(position, duration, speed, clock.Elapsed.TotalSeconds);
+        }
     }
 
     private async Task ToggleSubtitlesAsync(MpvIpcClient ipc, CancellationToken ct)

@@ -21,6 +21,9 @@ public sealed class MpvIpcClient(string pipePath, ILogger logger) : IAsyncDispos
     public event Action<MouseEventArgs>? MouseEvent;
     public event Action<string, JsonElement>? PropertyChanged;
     public event Action<string, string[]>? ScriptMessageReceived;
+    public event Action? FileLoaded;
+    /// Carries mpv's end-file reason, such as "eof", "stop" or "quit".
+    public event Action<string?>? FileEnded;
 
     public async Task ConnectAsync(CancellationToken ct)
     {
@@ -218,6 +221,13 @@ public sealed class MpvIpcClient(string pipePath, ILogger logger) : IAsyncDispos
                 break;
             case "client-message":
                 HandleClientMessage(root);
+                break;
+            case "file-loaded":
+                FileLoaded?.Invoke();
+                break;
+            case "end-file":
+                FileEnded?.Invoke(root.TryGetProperty("reason", out var reason)
+                                  && reason.ValueKind == JsonValueKind.String ? reason.GetString() : null);
                 break;
         }
     }

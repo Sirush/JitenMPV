@@ -100,6 +100,7 @@
           <ListBoxItem Content="Media" />
           <ListBoxItem Content="Popup" />
           <ListBoxItem Content="Keybinds" />
+          <ListBoxItem Content="Episode tracking" />
           <ListBoxItem Content="Advanced" />
         </ListBox>
       </Border>
@@ -1178,7 +1179,7 @@
           </StackPanel>
 
           <!-- ═══════ ADVANCED TAB ═══════ -->
-          <StackPanel IsVisible="{Binding SelectedTabIndex, Converter={StaticResource ParseEquals}, ConverterParameter=6}"
+          <StackPanel IsVisible="{Binding SelectedTabIndex, Converter={StaticResource ParseEquals}, ConverterParameter=7}"
                       Spacing="16">
             <TextBlock Text="Advanced" FontSize="20" FontWeight="Bold" Foreground="#ffffff" />
 
@@ -1259,6 +1260,53 @@
                 <Button Grid.Column="1" Content="Open folder" Classes="secondary"
                         Command="{Binding OpenConfigFolderCommand}" />
               </Grid>
+            </StackPanel>
+          </StackPanel>
+
+
+          <!-- ═══════ EPISODE TRACKING TAB ═══════ -->
+          <StackPanel IsVisible="{Binding SelectedTabIndex, Converter={StaticResource ParseEquals}, ConverterParameter=6}"
+                      Spacing="16">
+            <TextBlock Text="Episode tracking" FontSize="20" FontWeight="Bold" Foreground="#ffffff" />
+            <TextBlock Text="Marks the episode you finish in mpv as watched on Jiten."
+                       FontSize="12" Foreground="#71717a" TextWrapping="Wrap" />
+
+            <StackPanel Spacing="4">
+              <CheckBox Content="Track watched episodes" IsChecked="{Binding EpisodeTrackingEnabled}" />
+              <TextBlock Text="Only acts when the show is matched with confidence. Otherwise you choose it in the picker."
+                         FontSize="11" Foreground="#71717a" TextWrapping="Wrap" />
+            </StackPanel>
+
+            <StackPanel Spacing="8" IsEnabled="{Binding EpisodeTrackingEnabled}">
+              <StackPanel Spacing="4">
+                <TextBlock Text="Watched after (%)" Foreground="#a1a1aa" FontSize="13" FontWeight="Medium" />
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                  <Slider Value="{Binding EpisodeTrackingThresholdPercent}" Minimum="50" Maximum="100" Width="250"
+                          TickFrequency="5" IsSnapToTickEnabled="True" />
+                  <TextBlock Text="{Binding EpisodeTrackingThresholdPercent, StringFormat='{}{0}%'}"
+                             VerticalAlignment="Center" Foreground="#ffffff" />
+                </StackPanel>
+                <TextBlock Text="Share of the episode you have to actually play. Skipping ahead does not count."
+                           FontSize="11" Foreground="#71717a" TextWrapping="Wrap" />
+              </StackPanel>
+
+              <CheckBox Content="Also mark earlier episodes" IsChecked="{Binding EpisodeTrackingMarkEarlier}" />
+              <TextBlock Text="Marks every unwatched episode before this one too."
+                         FontSize="11" Foreground="#71717a" TextWrapping="Wrap" />
+
+              <CheckBox Content="Mark the show completed after the last episode"
+                        IsChecked="{Binding EpisodeTrackingMarkShowCompleted}" />
+
+              <CheckBox Content="Keep the show's status" IsChecked="{Binding EpisodeTrackingKeepShowStatus}" />
+              <TextBlock Text="Jiten sets the show to Ongoing when an episode is marked. This puts it back."
+                         FontSize="11" Foreground="#71717a" TextWrapping="Wrap" />
+
+              <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,8,0,0">
+                <TextBlock Text="Picker key" Classes="field-label" />
+                <TextBox Text="{Binding KeybindEpisodePicker}" Width="120" PlaceholderText="unbound" />
+              </StackPanel>
+              <TextBlock Text="Opens a window to choose the show or episode when the match is wrong or missing."
+                         FontSize="11" Foreground="#71717a" TextWrapping="Wrap" />
             </StackPanel>
           </StackPanel>
 

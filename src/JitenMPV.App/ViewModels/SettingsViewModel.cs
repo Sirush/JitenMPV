@@ -38,6 +38,8 @@ public partial class SettingsViewModel : ViewModelBase
 {
     /// Sidebar position of the Media tab; ResetSection and the tab visibility bindings share it.
     private const int MediaTabIndex = 3;
+    private const int EpisodeTrackingTabIndex = 6;
+    private const int AdvancedTabIndex = 7;
 
     [ObservableProperty] private string _apiKey = "";
     [ObservableProperty] private string _apiBaseUrl = "";
@@ -703,6 +705,7 @@ public partial class SettingsViewModel : ViewModelBase
         }
 
         ApplyMediaSettings(s);
+        ApplyEpisodeTrackingSettings(s);
         ApplyJitenPlusSnapshot(JitenPlusCache.Load());
 
         _previousTheme = s.Theme == "Custom" ? "Default" : s.Theme;
@@ -748,6 +751,23 @@ public partial class SettingsViewModel : ViewModelBase
         MediaSentenceContextLines = s.MediaSentenceContextLines;
         FfmpegPath = s.FfmpegPath;
         FfmpegPromptDismissed = s.FfmpegPromptDismissed;
+    }
+
+    [ObservableProperty] private bool _episodeTrackingEnabled;
+    [ObservableProperty] private int _episodeTrackingThresholdPercent;
+    [ObservableProperty] private bool _episodeTrackingMarkEarlier;
+    [ObservableProperty] private bool _episodeTrackingMarkShowCompleted;
+    [ObservableProperty] private bool _episodeTrackingKeepShowStatus;
+    [ObservableProperty] private string _keybindEpisodePicker = "";
+
+    private void ApplyEpisodeTrackingSettings(PluginSettings s)
+    {
+        EpisodeTrackingEnabled = s.EpisodeTrackingEnabled;
+        EpisodeTrackingThresholdPercent = s.EpisodeTrackingThresholdPercent;
+        EpisodeTrackingMarkEarlier = s.EpisodeTrackingMarkEarlier;
+        EpisodeTrackingMarkShowCompleted = s.EpisodeTrackingMarkShowCompleted;
+        EpisodeTrackingKeepShowStatus = s.EpisodeTrackingKeepShowStatus;
+        KeybindEpisodePicker = s.KeybindEpisodePicker;
     }
 
     private void ApplyJitenPlusSnapshot(JitenPlusSnapshot snapshot)
@@ -908,6 +928,12 @@ public partial class SettingsViewModel : ViewModelBase
             MediaSentenceContextLines = MediaSentenceContextLines,
             FfmpegPath = FfmpegPath,
             FfmpegPromptDismissed = FfmpegPromptDismissed,
+            EpisodeTrackingEnabled = EpisodeTrackingEnabled,
+            EpisodeTrackingThresholdPercent = EpisodeTrackingThresholdPercent,
+            EpisodeTrackingMarkEarlier = EpisodeTrackingMarkEarlier,
+            EpisodeTrackingMarkShowCompleted = EpisodeTrackingMarkShowCompleted,
+            EpisodeTrackingKeepShowStatus = EpisodeTrackingKeepShowStatus,
+            KeybindEpisodePicker = KeybindEpisodePicker.Trim(),
             CustomThemeColors = SelectedTheme == "Custom" && CustomStateStyles.Count > 0
                 ? CustomStateStyles.ToDictionary(s => s.State.ToString(), s => s.ToCustomStateStyle())
                 : null,
@@ -1474,7 +1500,10 @@ public partial class SettingsViewModel : ViewModelBase
                 KeybindNextSub = defaults.KeybindNextSub;
                 KeybindLoopSub = defaults.KeybindLoopSub;
                 break;
-            case 6:
+            case EpisodeTrackingTabIndex:
+                ApplyEpisodeTrackingSettings(defaults);
+                break;
+            case AdvancedTabIndex:
                 CacheSize = defaults.CacheSize;
                 PluginAutostart = defaults.PluginAutostart;
                 PluginStartKey = defaults.PluginStartKey;

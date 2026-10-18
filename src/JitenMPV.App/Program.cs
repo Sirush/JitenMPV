@@ -186,7 +186,8 @@ sealed class Program
                 && !string.IsNullOrWhiteSpace(args[2])
                     ? args[2]
                     : null,
-                overlaySurface);
+                overlaySurface,
+                new EpisodePickerPresenter());
             SettingsWindow? settingsWindow = null;
             bool settingsOpening = false;
 

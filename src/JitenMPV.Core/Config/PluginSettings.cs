@@ -410,6 +410,25 @@ public sealed class PluginSettings
     [JsonPropertyName("auto_save_settings")]
     public bool AutoSaveSettings { get; set; }
 
+    [JsonPropertyName("episode_tracking_enabled")]
+    public bool EpisodeTrackingEnabled { get; set; } = true;
+
+    [JsonPropertyName("episode_tracking_threshold_percent")]
+    public int EpisodeTrackingThresholdPercent { get; set; } = 85;
+
+    [JsonPropertyName("episode_tracking_mark_earlier")]
+    public bool EpisodeTrackingMarkEarlier { get; set; }
+
+    [JsonPropertyName("episode_tracking_mark_show_completed")]
+    public bool EpisodeTrackingMarkShowCompleted { get; set; } = true;
+
+    /// Jiten moves a show to Ongoing when one of its episodes is marked, even from no status.
+    [JsonPropertyName("episode_tracking_keep_show_status")]
+    public bool EpisodeTrackingKeepShowStatus { get; set; }
+
+    [JsonPropertyName("keybind_episode_picker")]
+    public string KeybindEpisodePicker { get; set; } = "Ctrl+e";
+
     [JsonPropertyName("popup_keybinds")]
     public Dictionary<string, string>? PopupKeybinds { get; set; } = new()
     {

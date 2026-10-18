@@ -1,0 +1,90 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:JitenMPV.App.ViewModels"
+        x:Class="JitenMPV.App.Views.EpisodePickerWindow"
+        x:DataType="vm:EpisodePickerViewModel"
+        Title="Episode tracking"
+        Width="560" Height="600"
+        MinWidth="440" MinHeight="420"
+        Topmost="True"
+        ShowInTaskbar="False"
+        WindowStartupLocation="CenterScreen"
+        Background="#09090b"
+        RequestedThemeVariant="Dark">
+
+  <Window.Styles>
+    <Style Selector="TextBlock.section-header">
+      <Setter Property="FontSize" Value="11" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Foreground" Value="#71717a" />
+    </Style>
+    <Style Selector="Button.accent">
+      <Setter Property="Background" Value="#c084fc" />
+      <Setter Property="Foreground" Value="#18181b" />
+      <Setter Property="FontWeight" Value="Medium" />
+    </Style>
+    <Style Selector="Button.accent:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="#d8b4fe" />
+      <Setter Property="Foreground" Value="#18181b" />
+    </Style>
+    <Style Selector="Button.secondary">
+      <Setter Property="Background" Value="#27272a" />
+      <Setter Property="Foreground" Value="#d4d4d8" />
+    </Style>
+  </Window.Styles>
+
+  <Grid Margin="20" RowDefinitions="Auto,Auto,*,Auto,Auto" RowSpacing="12">
+
+    <StackPanel Spacing="4">
+      <TextBlock Text="Which Jiten show is this?" FontSize="18" FontWeight="Bold" Foreground="#ffffff" />
+      <TextBlock Text="{Binding FileTitle}" FontSize="13" Foreground="#a1a1aa" TextWrapping="Wrap" />
+    </StackPanel>
+
+    <Grid Grid.Row="1" ColumnDefinitions="*,Auto" ColumnSpacing="8">
+      <TextBox Text="{Binding SearchText}" PlaceholderText="Search Jiten">
+        <TextBox.KeyBindings>
+          <KeyBinding Gesture="Enter" Command="{Binding SearchCommand}" />
+        </TextBox.KeyBindings>
+      </TextBox>
+      <Button Grid.Column="1" Content="Search" Classes="secondary" Command="{Binding SearchCommand}" />
+    </Grid>
+
+    <Grid Grid.Row="2" RowDefinitions="*,Auto">
+      <ListBox ItemsSource="{Binding Candidates}" SelectedItem="{Binding Selected}"
+               Background="#0F0F12" CornerRadius="6">
+        <ListBox.ItemTemplate>
+          <DataTemplate x:DataType="vm:EpisodeCandidateViewModel">
+            <Grid ColumnDefinitions="48,*" ColumnSpacing="12">
+              <Border Width="48" Height="68" CornerRadius="4" Background="#27272a" ClipToBounds="True">
+                <Image Source="{Binding Cover}" Stretch="UniformToFill" />
+              </Border>
+              <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center">
+                <TextBlock Text="{Binding Title}" FontSize="14" FontWeight="Medium" Foreground="#ffffff"
+                           TextWrapping="Wrap" />
+                <TextBlock Text="{Binding Subtitle}" FontSize="12" Foreground="#a1a1aa"
+                           TextTrimming="CharacterEllipsis" />
+                <TextBlock Text="{Binding Details}" FontSize="11" Foreground="#71717a" />
+              </StackPanel>
+            </Grid>
+          </DataTemplate>
+        </ListBox.ItemTemplate>
+      </ListBox>
+      <TextBlock Grid.Row="1" Text="{Binding Status}" FontSize="12" Foreground="#a1a1aa" Margin="0,6,0,0"
+                 IsVisible="{Binding Status, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+    </Grid>
+
+    <StackPanel Grid.Row="3" Orientation="Horizontal" Spacing="8" IsVisible="{Binding !IsMovieSelected}">
+      <TextBlock Text="This file is episode" VerticalAlignment="Center" Foreground="#a1a1aa" />
+      <NumericUpDown Value="{Binding Episode}" Minimum="1" Maximum="5000" Increment="1"
+                     FormatString="0" Width="140" />
+    </StackPanel>
+
+    <Grid Grid.Row="4" ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="8">
+      <Button Content="Don't track this folder" Classes="secondary" Command="{Binding IgnoreFolderCommand}" />
+      <Button Grid.Column="2" Content="Cancel" Classes="secondary" IsCancel="True"
+              Command="{Binding CancelCommand}" />
+      <Button Grid.Column="3" Content="Use this show" Classes="accent"
+              Command="{Binding ConfirmCommand}" />
+    </Grid>
+  </Grid>
+</Window>

@@ -8,7 +8,7 @@ using Microsoft.Extensions.Logging;
 
 namespace JitenMPV.Core.Api;
 
-public sealed class JitenApiClient
+public sealed partial class JitenApiClient
 {
     // DTOs carry explicit [JsonPropertyName] (camelCase), so no naming policy is needed here.
     private static readonly JsonSerializerOptions JsonOptions = new();
